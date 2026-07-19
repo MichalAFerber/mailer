@@ -1,0 +1,11 @@
+{
+  "name": "mailer",
+  "version": "1.0.0",
+  "description": "Outbound email worker for the herald platform: /send (programmatic email API) + /contact (shared Turnstile-gated contact endpoint, DEV-STANDARDS §6 format).",
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "deploy": "wrangler deploy"
+  },
+  "license": "MIT"
+}
