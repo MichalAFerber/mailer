@@ -50,14 +50,17 @@ export default {
     if (!product) return json({ error: `unknown product '${slug}'`, code: 'unknown_product' }, 404);
 
     return kind === 'send'
-      ? handleSend(request, env, product)
-      : handleContact(request, env, product);
+      ? handleSend(request, env, product, ctx, slug)
+      : handleContact(request, env, product, ctx, slug);
   },
 };
 
 // ---------------------------------------------------------------- /send ----
 
-async function handleSend(request, env, product) {
+// `slug` comes from the ROUTE, not from `product`: the KV projection carries only
+// public-safe display fields and has no slug, so reading it from there would send
+// every failure alert to /notify/undefined.
+async function handleSend(request, env, product, ctx, slug) {
   const token = request.headers.get('X-Send-Token') || bearer(request);
   if (!(await sendAuthed(env, product, token))) {
     return json({ error: 'unauthorized', code: 'unauthorized' }, 401);
@@ -87,6 +90,9 @@ async function handleSend(request, env, product) {
     replyTo,
     subject,
     html: preformattedHtml(message),
+    slug,
+    lane: 'send',
+    ctx,
   });
   if (!sent.ok) {
     return json({ error: 'email upstream failed', code: 'email_upstream_failed' }, 502);
@@ -102,7 +108,7 @@ async function sendAuthed(env, product, token) {
 
 // ------------------------------------------------------------- /contact ----
 
-async function handleContact(request, env, product) {
+async function handleContact(request, env, product, ctx, slug) {
   const origin = request.headers.get('Origin');
   if (!originAllowed(product, origin)) {
     return json({ error: 'origin not allowed', code: 'origin_denied' }, 403);
@@ -139,6 +145,9 @@ async function handleContact(request, env, product) {
     replyTo: email,
     subject: `${product.name}⎯${subject}`,
     html: contactHtml({ name, email, message }),
+    slug,
+    lane: 'contact',
+    ctx,
   });
   if (!sent.ok) {
     return json({ error: 'email upstream failed', code: 'email_upstream_failed' }, 502, origin);
@@ -200,7 +209,7 @@ function clean(v, max) {
 // ------------------------------------------------------------- delivery ----
 
 // ForwardEmail REST with the 3-attempt retry proven in resizewizard-api.
-async function sendEmail(env, { from, to, replyTo, subject, html }) {
+async function sendEmail(env, { from, to, replyTo, subject, html, slug, lane, ctx }) {
   const auth = 'Basic ' + btoa(env.FORWARDEMAIL_API_KEY + ':');
   let lastError = '';
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -228,7 +237,63 @@ async function sendEmail(env, { from, to, replyTo, subject, html }) {
     if (attempt < 3) await new Promise((r) => setTimeout(r, 1000 * attempt));
   }
   console.error('sendEmail failed:', lastError);
+  // A console line is not a notification. Until now an upstream rejection --
+  // Forward Email refusing the message outright -- left no trace anywhere: the
+  // caller got a 502, the submitter saw an error, and nobody was told. This is
+  // NOT a bounce; the bounce lane only sees messages Forward Email accepted and
+  // then failed to deliver. A rejected send never reaches it.
+  //
+  // Reported THROUGH herald rather than written to D1 directly: the mailer is
+  // the public-facing surface and deliberately holds no write handle to fleet
+  // history. A scoped ingest token is the whole of its privilege.
+  const report = reportSendFailure(env, { slug, lane, to, subject, reason: lastError });
+  if (ctx && ctx.waitUntil) ctx.waitUntil(report); else await report;
   return { ok: false };
+}
+
+// Best-effort, per-isolate throttle. /contact is public, so an upstream outage
+// would otherwise turn every submission into its own Discord message. This does
+// not bound the total across isolates -- it turns hundreds into a handful, which
+// is the difference that matters when you are trying to read the channel.
+const lastReported = new Map();
+const REPORT_EVERY_MS = 5 * 60 * 1000;
+
+// Exported for tests: module state must not leak between cases.
+export function _resetReportThrottle() {
+  lastReported.clear();
+}
+
+async function reportSendFailure(env, { slug, lane, to, subject, reason }) {
+  if (!env.NOTIFY_URL || !env.NOTIFY_TOKEN) return;
+  const now = Date.now();
+  const key = `${slug}:${lane}`;
+  if (now - (lastReported.get(key) ?? 0) < REPORT_EVERY_MS) return;
+  lastReported.set(key, now);
+
+  try {
+    const res = await fetch(`${env.NOTIFY_URL}/notify/${encodeURIComponent(slug)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ingest-Token': env.NOTIFY_TOKEN },
+      body: JSON.stringify({
+        level: 'error',
+        source: 'mailer',
+        title: `Outbound email REJECTED — ${slug} (${lane})`,
+        description:
+          'Forward Email refused the message after 3 attempts, so it was never queued and ' +
+          'will NOT produce a bounce. The recipient did not get it.',
+        fields: [
+          { name: 'Recipient', value: String(to || 'unknown') },
+          { name: 'Subject', value: String(subject || '(none)') },
+          { name: 'Upstream', value: String(reason || 'unknown') },
+        ],
+      }),
+    });
+    if (!res.ok) console.error('sendEmail failure report rejected:', res.status);
+  } catch (e) {
+    // The platform being down must never turn a send failure into an exception
+    // on the request path.
+    console.error('sendEmail failure report failed:', e.message);
+  }
 }
 
 // ----------------------------------------------------------------- misc ----

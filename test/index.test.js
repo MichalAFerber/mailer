@@ -2,7 +2,7 @@
 // siteverify + ForwardEmail) are stubbed per test and routed by URL.
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { contactHtml, escapeHtml } from '../src/index.js';
+import worker, { contactHtml, escapeHtml, _resetReportThrottle } from '../src/index.js';
 
 class FakeKV {
   constructor(entries = {}) {
@@ -298,4 +298,81 @@ test('health is up; unknown routes 404 with the error envelope', async () => {
 
 test('escapeHtml covers the full character map', () => {
   assert.equal(escapeHtml(`&<>"'`), '&amp;&lt;&gt;&quot;&#39;');
+});
+
+// --- outbound send failures are reported, not merely console.error'd ---------
+
+function withNotify(env, calls) {
+  const inner = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('/notify/')) {
+      calls.push({ url: String(url), opts });
+      return { ok: true, status: 200, json: async () => ({}) };
+    }
+    return inner(url, opts);
+  };
+  return { ...env, NOTIFY_URL: 'https://notify.thompsonblack.us', NOTIFY_TOKEN: 'tok' };
+}
+
+const sendReq = (env) =>
+  worker.fetch(
+    new Request('https://mailer.example/send/tgwab', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Send-Token': 'test-send-token' },
+      body: JSON.stringify({ to: 'a@b.co', subject: 'hi', message: 'x' }),
+    }),
+    env,
+  );
+
+test('an upstream REJECTION is reported to herald, routed by the ROUTE slug', async () => {
+  _resetReportThrottle();
+  // Regression: the mailer KV projection carries no `slug`, so taking it from
+  // the product object sent every alert to /notify/undefined and lost it.
+  emailResponse = { ok: false, status: 550 };
+  const calls = [];
+  const res = await sendReq(withNotify(makeEnv(), calls));
+
+  assert.equal(res.status, 502, 'the caller still learns it failed');
+  assert.equal(calls.length, 1, 'and the failure is announced');
+  assert.match(calls[0].url, /\/notify\/tgwab$/, 'routed by slug, never /notify/undefined');
+  assert.equal(calls[0].opts.headers['X-Ingest-Token'], 'tok');
+
+  const body = JSON.parse(calls[0].opts.body);
+  assert.equal(body.level, 'error');
+  assert.match(body.description, /will NOT produce a bounce/i, 'a rejection is not a bounce');
+  assert.ok(body.fields.some((f) => f.value === 'a@b.co'), 'names the recipient who missed it');
+});
+
+test('a SUCCESSFUL send reports nothing', async () => {
+  const calls = [];
+  const res = await sendReq(withNotify(makeEnv(), calls));
+  assert.equal(res.status, 200);
+  assert.equal(calls.length, 0);
+});
+
+test('repeat failures are throttled so an upstream outage cannot flood the channel', async () => {
+  _resetReportThrottle();
+  emailResponse = { ok: false, status: 500 };
+  const calls = [];
+  const env = withNotify(makeEnv(), calls);
+  for (let i = 0; i < 4; i++) await sendReq(env);
+  assert.equal(calls.length, 1, '/contact is public — one alert per window, not one per submission');
+});
+
+test('herald being unreachable never turns a send failure into an exception', async () => {
+  emailResponse = { ok: false, status: 500 };
+  const env = { ...makeEnv(), NOTIFY_URL: 'https://notify.thompsonblack.us', NOTIFY_TOKEN: 'tok' };
+  const inner = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => {
+    if (String(url).includes('/notify/')) throw new Error('herald is down');
+    return inner(url, opts);
+  };
+  const res = await sendReq(env);
+  assert.equal(res.status, 502, 'still a clean 502');
+});
+
+test('with no NOTIFY_URL configured the lane is simply inert', async () => {
+  emailResponse = { ok: false, status: 500 };
+  const res = await sendReq(makeEnv()); // unexpected fetch would throw
+  assert.equal(res.status, 502);
 });

@@ -12,6 +12,12 @@ routes = [{ pattern = "mailer.thompsonblack.us", custom_domain = true }]
 # `notifyctl sync-mailer` — public-safe fields only, never a webhook or key.
 # The mailer deliberately has NO D1 binding: the public /contact surface must
 # never hold a write handle to the platform database.
+[vars]
+# Where the mailer reports its OWN send failures. It holds a `notify`-scoped
+# ingest token and nothing else -- deliberately no D1 binding, so the public
+# surface never gets a write handle to fleet history.
+NOTIFY_URL = "https://notify.thompsonblack.us"
+
 [[kv_namespaces]]
 binding = "PRODUCTS"
 id = "YOUR_KV_NAMESPACE_ID"
