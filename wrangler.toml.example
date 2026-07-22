@@ -1,28 +1,32 @@
+# Copy to wrangler.toml and fill in the two ids below. The real wrangler.toml is
+# gitignored: it carries a Cloudflare account id and a KV namespace id, which are
+# identifiers rather than credentials -- useless without a token -- but there is
+# no reason to publish the account layout of a public-facing worker.
 name = "mailer"
 main = "src/index.js"
 compatibility_date = "2026-06-01"
-account_id = "YOUR_CLOUDFLARE_ACCOUNT_ID"  # TechGuyWithABeard
+account_id = "YOUR_CLOUDFLARE_ACCOUNT_ID"
 
 # Access apps and Turnstile guard hostnames; a workers.dev route would be an
 # unguarded second front door.
 workers_dev = false
-routes = [{ pattern = "mailer.thompsonblack.us", custom_domain = true }]
+routes = [{ pattern = "mailer.example.com", custom_domain = true }]
 
 # Per-product config, projected from the herald registry (D1) by
-# `notifyctl sync-mailer` — public-safe fields only, never a webhook or key.
+# `notifyctl sync-mailer` -- public-safe fields only, never a webhook or key.
 # The mailer deliberately has NO D1 binding: the public /contact surface must
 # never hold a write handle to the platform database.
 [vars]
 # Where the mailer reports its OWN send failures. It holds a `notify`-scoped
-# ingest token and nothing else -- deliberately no D1 binding, so the public
-# surface never gets a write handle to fleet history.
-NOTIFY_URL = "https://notify.thompsonblack.us"
+# ingest token and nothing else.
+NOTIFY_URL = "https://notify.example.com"
 
 [[kv_namespaces]]
 binding = "PRODUCTS"
 id = "YOUR_KV_NAMESPACE_ID"
 
-# Secrets — set with `wrangler secret put <NAME>` (values live in Proton Pass):
+# Secrets -- set with `wrangler secret put <NAME>` (values live in a password
+# manager, never in this file):
 #   FORWARDEMAIL_API_KEY  ForwardEmail REST key (Basic auth)
 #   TURNSTILE_SECRET      server-side siteverify key for /contact
 #   SEND_TOKEN            shared /send token (per-product send_token_sha256 in
