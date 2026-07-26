@@ -15,8 +15,12 @@
 //
 // Per-product config comes from the PRODUCTS KV projection (written by
 // `notifyctl sync-mailer` from the herald registry): {name, domain, from_addr,
-// contact_to, allowed_origins, send_token_sha256?}. Renderers live here in
-// tested code; only per-product data varies.
+// contact_to, allowed_origins, turnstile_ref?, send_token_sha256?}. Renderers
+// live here in tested code; only per-product data varies.
+//
+// `turnstile_ref` NAMES a worker secret (never a value). A Turnstile widget
+// caps at 10 domains, so a single shared secret would also cap the platform at
+// 10 contact-form products; a product carrying a ref rides its own widget.
 
 const LIMITS = { name: 100, email: 254, subject: 150, message: 5000 };
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -124,7 +128,7 @@ async function handleContact(request, env, product, ctx, slug) {
   // Turnstile FIRST (§7): no verification, no send — and the check is
   // server-side against siteverify, never trusted from the client.
   const turnstileToken = b.turnstileToken || b['cf-turnstile-response'];
-  if (!(await turnstileOk(env, turnstileToken, request))) {
+  if (!(await turnstileOk(env, turnstileToken, request, product))) {
     return json({ error: 'turnstile verification failed', code: 'turnstile_failed' }, 403, origin);
   }
 
@@ -160,11 +164,28 @@ function originAllowed(product, origin) {
   return Array.isArray(product.allowed_origins) && product.allowed_origins.includes(origin);
 }
 
-async function turnstileOk(env, token, request) {
-  if (!env.TURNSTILE_SECRET || !token) return false;
+// Resolve the Turnstile secret for a product. A widget caps at 10 domains, so
+// one shared secret also caps the platform at 10 products. `turnstile_ref`
+// NAMES a worker secret (never a value) so a product can ride its own widget;
+// products without one keep using the shared TURNSTILE_SECRET.
+function turnstileSecret(env, product) {
+  const ref = product && product.turnstile_ref;
+  if (ref) {
+    const scoped = env[ref];
+    // A configured-but-missing secret must fail closed rather than silently
+    // falling back to the shared one, which would verify against the wrong
+    // widget and reject every token from the product's real sitekey.
+    return scoped || null;
+  }
+  return env.TURNSTILE_SECRET || null;
+}
+
+async function turnstileOk(env, token, request, product) {
+  const secret = turnstileSecret(env, product);
+  if (!secret || !token) return false;
   try {
     const form = new FormData();
-    form.set('secret', env.TURNSTILE_SECRET);
+    form.set('secret', secret);
     form.set('response', token);
     const ip = request.headers.get('CF-Connecting-IP');
     if (ip) form.set('remoteip', ip);
