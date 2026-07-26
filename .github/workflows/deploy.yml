@@ -1,0 +1,53 @@
+name: deploy
+
+# Push to main deploys the worker. Docs-only changes are ignored (paths filter),
+# and the tests run first so a red build never reaches production.
+#
+# Added because merging a PR here previously changed nothing in production: the
+# repo had no deploy path, so every release depended on someone remembering to
+# run `wrangler deploy` by hand. Two merged fixes sat undeployed until that was
+# noticed.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'test/**'
+      - 'wrangler.toml'
+      - 'package.json'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Test
+        run: node --test
+
+      # Fail loudly rather than skipping. A guarded deploy that silently no-ops
+      # reports green while shipping nothing — the failure mode already seen on
+      # wizard-web, where every app was skipped for a missing token while the
+      # workflow reported success.
+      - name: Require deploy credentials
+        run: |
+          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN is not set — refusing to report success without deploying."
+            exit 1
+          fi
+
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          # Scoped token: Workers Scripts + Routes write, Account Settings read.
+          # account_id lives in wrangler.toml. Secrets/vars are NOT touched.
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
