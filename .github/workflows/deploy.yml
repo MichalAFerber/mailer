@@ -45,9 +45,27 @@ jobs:
             exit 1
           fi
 
+      # wrangler.toml is gitignored by design (it carries the account id, the KV
+      # namespace id and the live route -- identifiers, not credentials, but the
+      # account layout of a public worker is not worth publishing). CI rebuilds
+      # it from the tracked template using repo VARIABLES, so the deploy has a
+      # `main` entry point and the PRODUCTS binding.
+      - name: Materialise wrangler.toml from the template
+        run: |
+          test -n "${{ vars.CLOUDFLARE_ACCOUNT_ID }}" || { echo "::error::vars.CLOUDFLARE_ACCOUNT_ID unset"; exit 1; }
+          test -n "${{ vars.MAILER_KV_PRODUCTS_ID }}" || { echo "::error::vars.MAILER_KV_PRODUCTS_ID unset"; exit 1; }
+          sed -e 's|YOUR_CLOUDFLARE_ACCOUNT_ID|${{ vars.CLOUDFLARE_ACCOUNT_ID }}|' \
+              -e 's|YOUR_KV_NAMESPACE_ID|${{ vars.MAILER_KV_PRODUCTS_ID }}|' \
+              -e 's|mailer.example.com|mailer.thompsonblack.us|' \
+              -e 's|https://notify.example.com|https://notify.thompsonblack.us|' \
+              wrangler.toml.example > wrangler.toml
+          grep -q 'YOUR_' wrangler.toml && { echo "::error::template placeholders remain"; exit 1; } || true
+          echo "wrangler.toml materialised:"; grep -vE '^\s*#' wrangler.toml | grep -vE '^\s*$'
+
       - name: Deploy
         uses: cloudflare/wrangler-action@v3
         with:
           # Scoped token: Workers Scripts + Routes write, Account Settings read.
           # account_id lives in wrangler.toml. Secrets/vars are NOT touched.
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          wranglerVersion: '4'
