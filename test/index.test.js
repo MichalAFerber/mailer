@@ -33,6 +33,7 @@ function makeEnv(productOverrides = {}) {
 }
 
 let emailCalls;
+let emailContentTypes;
 let turnstileCalls;
 let turnstileSuccess;
 let emailResponse;
@@ -40,6 +41,7 @@ const realFetch = globalThis.fetch;
 
 beforeEach(() => {
   emailCalls = [];
+  emailContentTypes = [];
   turnstileCalls = [];
   turnstileSuccess = true;
   emailResponse = { ok: true, status: 200 };
@@ -49,7 +51,10 @@ beforeEach(() => {
       return { ok: true, status: 200, json: async () => ({ success: turnstileSuccess }) };
     }
     if (String(url).includes('api.forwardemail.net')) {
-      emailCalls.push(JSON.parse(opts.body));
+      // Forward Email is called form-encoded: a JSON body makes it ignore
+      // `html` and send the markup as text/plain.
+      emailContentTypes.push(opts.headers['Content-Type']);
+      emailCalls.push(Object.fromEntries(new URLSearchParams(opts.body)));
       return {
         ok: emailResponse.ok,
         status: emailResponse.status,
@@ -145,6 +150,19 @@ test('header injection is stripped from name, email, and subject', async () => {
 });
 
 // --- Turnstile & origin gates ----------------------------------------------
+
+// --- Forward Email transport ------------------------------------------------
+
+test('Forward Email is called form-encoded so html is honoured', async () => {
+  const res = await contact(VALID);
+  assert.equal(res.status, 200);
+  assert.equal(emailContentTypes[0], 'application/x-www-form-urlencoded');
+  // Regression guard: a JSON body makes Forward Email ignore `html` entirely
+  // and deliver the markup as Content-Type: text/plain — the visitor's message
+  // arrives as raw <div style=...> source. Verified against sent MIME.
+  assert.ok(!/application\/json/.test(emailContentTypes[0]));
+  assert.ok(emailCalls[0].html.startsWith('<div'));
+});
 
 // --- per-product Turnstile secret (turnstile_ref) ---------------------------
 // A widget caps at 10 domains, so one shared secret caps the platform at 10
