@@ -235,16 +235,20 @@ async function sendEmail(env, { from, to, replyTo, subject, html, slug, lane, ct
   let lastError = '';
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
+      // Form-encoded, NOT JSON. Forward Email's API silently ignores `html`
+      // on a JSON body and sends the markup as text/plain; the same payload
+      // form-encoded yields text/html. Their own docs example uses -d, i.e.
+      // form encoding. Verified against sent MIME both ways.
+      const form = new URLSearchParams();
+      form.set('from', from);
+      form.set('to', to);
+      if (replyTo) form.set('replyTo', replyTo);
+      form.set('subject', subject);
+      form.set('html', html);
       const res = await fetch('https://api.forwardemail.net/v1/emails', {
         method: 'POST',
-        headers: { Authorization: auth, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from,
-          to,
-          ...(replyTo ? { replyTo } : {}),
-          subject,
-          html,
-        }),
+        headers: { Authorization: auth, 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: form,
       });
       if (res.ok) {
         const body = await res.json().catch(() => ({}));
