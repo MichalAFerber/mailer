@@ -64,14 +64,14 @@ afterEach(() => {
   globalThis.fetch = realFetch;
 });
 
-function contact(body, { origin = 'https://techguywithabeard.com', slug = 'tgwab' } = {}) {
+function contact(body, { origin = 'https://techguywithabeard.com', slug = 'tgwab', env } = {}) {
   return worker.fetch(
     new Request(`https://mailer.example/contact/${slug}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(origin ? { Origin: origin } : {}) },
       body: JSON.stringify(body),
     }),
-    makeEnv(),
+    env ?? makeEnv(),
   );
 }
 
@@ -145,6 +145,35 @@ test('header injection is stripped from name, email, and subject', async () => {
 });
 
 // --- Turnstile & origin gates ----------------------------------------------
+
+// --- per-product Turnstile secret (turnstile_ref) ---------------------------
+// A widget caps at 10 domains, so one shared secret caps the platform at 10
+// contact products. turnstile_ref NAMES a worker secret so a product can ride
+// its own widget.
+
+test('turnstile_ref verifies against the referenced secret, not the shared one', async () => {
+  const env = makeEnv({ turnstile_ref: 'TURNSTILE_SECRET_WIZARD' });
+  env.TURNSTILE_SECRET_WIZARD = 'wizard-secret';
+  const res = await contact(VALID, { env });
+  assert.equal(res.status, 200);
+  assert.equal(turnstileCalls.length, 1);
+  assert.equal(turnstileCalls[0].get('secret'), 'wizard-secret');
+});
+
+test('turnstile_ref naming a missing secret fails closed, does not fall back', async () => {
+  const env = makeEnv({ turnstile_ref: 'TURNSTILE_SECRET_ABSENT' });
+  const res = await contact(VALID, { env });
+  assert.equal(res.status, 403);
+  assert.equal((await res.json()).code, 'turnstile_failed');
+  assert.equal(turnstileCalls.length, 0, 'must not call siteverify at all');
+  assert.equal(emailCalls.length, 0);
+});
+
+test('no turnstile_ref still uses the shared TURNSTILE_SECRET', async () => {
+  const res = await contact(VALID);
+  assert.equal(res.status, 200);
+  assert.equal(turnstileCalls[0].get('secret'), 'test-turnstile-secret');
+});
 
 test('missing Turnstile token -> 403, no email sent', async () => {
   const { turnstileToken, ...rest } = VALID;
