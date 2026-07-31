@@ -2,7 +2,7 @@
 // siteverify + ForwardEmail) are stubbed per test and routed by URL.
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { contactHtml, escapeHtml, _resetReportThrottle } from '../src/index.js';
+import worker, { contactHtml, escapeHtml, reportHtml, _resetReportThrottle } from '../src/index.js';
 import { renderShell } from '../src/shell.js';
 
 class FakeKV {
@@ -335,11 +335,48 @@ test('send: upstream failure -> 502 email_upstream_failed', async () => {
   assert.equal((await res.json()).code, 'email_upstream_failed');
 });
 
-test('send: message is HTML-escaped and pre-formatted', async () => {
+test('send: message is HTML-escaped and whitespace-preserving', async () => {
   await send({ subject: 's', message: 'a < b\nline2' });
   assert.ok(emailCalls[0].html.includes('a &lt; b\nline2'));
-  assert.ok(emailCalls[0].html.includes('<div style="white-space:pre;'));
+  assert.ok(emailCalls[0].html.includes('white-space:pre-wrap'));
   assert.ok(emailCalls[0].html.includes('<!DOCTYPE html'));
+});
+
+// --- report rendering (reportHtml) ------------------------------------------
+
+test('reportHtml: pipe-table blocks become real tables with a header row', () => {
+  const html = reportHtml(
+    'prose before\n' +
+      '| repo | state |\n' +
+      '| --- | --- |\n' +
+      '| a/b | ✅ ok |\n' +
+      'prose after');
+  assert.ok(html.includes('<table'));
+  assert.ok(html.includes('font-weight:bold; background-color:#f5f5f5;">repo</td>'));
+  assert.ok(html.includes('>✅ ok</td>'));
+  // The separator row is consumed, not rendered.
+  assert.ok(!html.includes('---'));
+  assert.ok(html.includes('prose before') && html.includes('prose after'));
+});
+
+test('reportHtml: a table without a separator row renders all rows as data', () => {
+  const html = reportHtml('| x | y |\n| 1 | 2 |');
+  assert.ok(!html.includes('background-color:#f5f5f5'));
+  assert.ok(html.includes('>x</td>') && html.includes('>2</td>'));
+});
+
+test('reportHtml: ━━ lines become section headings', () => {
+  const html = reportHtml('━━ Weather — Florence SC\n\nclear, high 92°F');
+  assert.ok(html.includes('font-weight:bold; font-size:15px;'));
+  assert.ok(html.includes('>Weather — Florence SC</div>'));
+  assert.ok(!html.includes('━'));
+});
+
+test('reportHtml: cell and text content is escaped', () => {
+  const html = reportHtml('| <b>x</b> |\ntext <script>');
+  assert.ok(html.includes('&lt;b&gt;x&lt;/b&gt;'));
+  assert.ok(html.includes('text &lt;script&gt;'));
+  assert.ok(!html.includes('<script>'));
 });
 
 // --- misc -------------------------------------------------------------------

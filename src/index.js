@@ -108,7 +108,7 @@ async function handleSend(request, env, product, ctx, slug) {
     html: renderShell(product, {
       heading: subject,
       preheader: subject,
-      body: preformattedHtml(message),
+      body: reportHtml(message),
     }),
     slug,
     lane: 'send',
@@ -232,8 +232,67 @@ Email:\t${escapeHtml(email)}
 ${escapeHtml(message)}</div>`;
 }
 
-function preformattedHtml(message) {
-  return `<div style="white-space:pre; font-family:system-ui, sans-serif;">${escapeHtml(message)}</div>`;
+// /send bodies are script reports: pipe tables, "━━ Section" headings, and
+// column-aligned monospace runs. A single white-space:pre div made them
+// unreadable — the body's word-break:break-word chops long padded lines into
+// run-on fragments. Render structure instead: pipe-table blocks become real
+// <table>s, "━━ " lines become section headings, everything else keeps its
+// whitespace in a monospace pre-wrap block. Every value is escaped per line;
+// the §6 contact format (contactHtml) is untouched.
+const MONO = "ui-monospace, Menlo, Consolas, 'Courier New', monospace";
+
+export function reportHtml(message) {
+  const out = [];
+  let text = [];
+  let table = [];
+  const flushText = () => {
+    if (!text.length) return;
+    // Trim blank edges so spacing comes from the blocks, not stray newlines.
+    const chunk = text.join('\n').replace(/^\n+|\n+$/g, '');
+    if (chunk) {
+      out.push(`<div style="white-space:pre-wrap; font-family:${MONO}; font-size:13px; line-height:1.5;">${escapeHtml(chunk)}</div>`);
+    }
+    text = [];
+  };
+  const flushTable = () => {
+    if (!table.length) return;
+    out.push(tableHtml(table));
+    table = [];
+  };
+  for (const line of String(message).split('\n')) {
+    if (/^\s*\|.*\|\s*$/.test(line)) {
+      flushText();
+      table.push(line);
+    } else if (/^━+\s*\S/.test(line.trim())) {
+      flushText();
+      flushTable();
+      const title = line.trim().replace(/^━+\s*/, '');
+      out.push(`<div style="font-weight:bold; font-size:15px; color:#222222; margin:18px 0 6px;">${escapeHtml(title)}</div>`);
+    } else {
+      flushTable();
+      text.push(line);
+    }
+  }
+  flushText();
+  flushTable();
+  return out.join('\n');
+}
+
+function tableHtml(lines) {
+  const rows = lines.map((l) =>
+    l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim()));
+  // A markdown separator row (---, :--:) marks the row above it as the header.
+  let header = null;
+  if (rows.length > 1 && rows[1].every((c) => /^:?-{2,}:?$/.test(c))) {
+    header = rows[0];
+    rows.splice(0, 2);
+  }
+  const td = (c, bold) =>
+    `<td style="border:1px solid #d9d9d9; padding:5px 9px; vertical-align:top;${bold ? ' font-weight:bold; background-color:#f5f5f5;' : ''}">${escapeHtml(c)}</td>`;
+  const tr = (cells, bold) => `<tr>${cells.map((c) => td(c, bold)).join('')}</tr>`;
+  return `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse; margin:10px 0; font-family:${MONO}; font-size:12px; line-height:1.4;">${
+    header ? tr(header, true) : ''
+  }${rows.map((r) => tr(r, false)).join('')}</table>`;
 }
 
 export function escapeHtml(s) {
