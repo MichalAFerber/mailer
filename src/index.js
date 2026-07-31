@@ -22,6 +22,8 @@
 // caps at 10 domains, so a single shared secret would also cap the platform at
 // 10 contact-form products; a product carrying a ref rides its own widget.
 
+import { renderShell } from './shell.js';
+
 const LIMITS = { name: 100, email: 254, subject: 150, message: 5000 };
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -93,7 +95,11 @@ async function handleSend(request, env, product, ctx, slug) {
     to,
     replyTo,
     subject,
-    html: preformattedHtml(message),
+    html: renderShell(product, {
+      heading: subject,
+      preheader: subject,
+      body: preformattedHtml(message),
+    }),
     slug,
     lane: 'send',
     ctx,
@@ -148,7 +154,11 @@ async function handleContact(request, env, product, ctx, slug) {
     to: product.contact_to,
     replyTo: email,
     subject: `${product.name}⎯${subject}`,
-    html: contactHtml({ name, email, message }),
+    html: renderShell(product, {
+      heading: 'New contact form message',
+      preheader: `${name} via ${product.domain}`,
+      body: contactHtml({ name, email, message }),
+    }),
     slug,
     lane: 'contact',
     ctx,
