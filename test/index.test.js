@@ -111,13 +111,17 @@ test('GOLDEN: contact email matches the §6 house format byte-for-byte', async (
   assert.equal(mail.replyTo, 'jamie@example.com');
   // U+23AF horizontal line extension, exactly as the standard specifies.
   assert.equal(mail.subject, 'TechGuyWithABeard⎯Question about pricing');
-  assert.equal(
-    mail.html,
+  // The §6 pre-block rides inside the house shell (renderShell) — assert the
+  // exact block survives verbatim, and the shell chrome is present around it.
+  assert.ok(mail.html.includes(
     '<div style="white-space:pre; font-family:system-ui, sans-serif;">Name:\tJamie Doe\n' +
       'Email:\tjamie@example.com\n' +
       '\n' +
       'Hello,\nhow much is Pro?\n\nThanks!</div>',
-  );
+  ));
+  assert.ok(mail.html.includes('<!DOCTYPE html'));
+  assert.ok(mail.html.includes('New contact form message'));
+  assert.ok(mail.html.includes('Add <b style="color: #333333;">'));
 });
 
 test('GOLDEN: contactHtml layout is Name/Email/blank/message with a real tab', () => {
@@ -161,7 +165,7 @@ test('Forward Email is called form-encoded so html is honoured', async () => {
   // Email's redaction placeholder is always text/plain; X-Original-Content-Type
   // showed text/html for JSON sends too).
   assert.ok(!/application\/json/.test(emailContentTypes[0]));
-  assert.ok(emailCalls[0].html.startsWith('<div'));
+  assert.ok(emailCalls[0].html.startsWith('<!DOCTYPE html'));
 });
 
 // --- per-product Turnstile secret (turnstile_ref) ---------------------------
@@ -264,7 +268,10 @@ test('unknown product -> 404', async () => {
 
 test('oversized message is clamped to the limit, not rejected', async () => {
   await contact({ ...VALID, message: 'x'.repeat(9000) });
-  assert.ok(emailCalls[0].html.length < 6000);
+  // The shell adds fixed chrome around the clamped body—assert the clamp on
+  // the message itself, not the total document.
+  const xs = emailCalls[0].html.match(/x{100,}/)[0];
+  assert.equal(xs.length, 5000);
 });
 
 // --- /send ------------------------------------------------------------------
@@ -330,7 +337,8 @@ test('send: upstream failure -> 502 email_upstream_failed', async () => {
 test('send: message is HTML-escaped and pre-formatted', async () => {
   await send({ subject: 's', message: 'a < b\nline2' });
   assert.ok(emailCalls[0].html.includes('a &lt; b\nline2'));
-  assert.ok(emailCalls[0].html.startsWith('<div style="white-space:pre;'));
+  assert.ok(emailCalls[0].html.includes('<div style="white-space:pre;'));
+  assert.ok(emailCalls[0].html.includes('<!DOCTYPE html'));
 });
 
 // --- misc -------------------------------------------------------------------
