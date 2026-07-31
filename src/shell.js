@@ -5,8 +5,11 @@
 //
 // One adaptation from the template: the logo <img> points at the product's
 // /icon-192.png (the §11 manifest icon on the product's OWN domain, per the
-// template's absolute-https rule). Clients that block images show the
-// product-name alt text — the wordmark cell carries the name regardless.
+// template's absolute-https rule), unless the projection carries an explicit
+// icon_url — for products whose domain hosts no site (ops: thompsonblack.us
+// 301s to the LLC site, so the mailer serves its own mark). Clients that block
+// images show the product-name alt text — the wordmark cell carries the name
+// regardless.
 import { escapeHtml } from './index.js';
 
 const POSTAL_ADDRESS = 'ThompsonBlack LLC, PO Box 3071, Florence SC 29502';
@@ -15,6 +18,7 @@ export function renderShell(product, { heading, preheader, body }) {
   const name = escapeHtml(product.name);
   const domain = escapeHtml(product.domain);
   const sender = escapeHtml(product.from_addr);
+  const icon = escapeHtml(product.icon_url || `https://${product.domain}/icon-192.png`);
   const head = escapeHtml(heading);
   const pre = escapeHtml(preheader);
   const year = new Date().getFullYear();
@@ -52,7 +56,7 @@ td.spacer-major { line-height: 16px !important; }
 <td class="header" style="padding: 40px 0 40px 0;">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0">
 <tr>
-<td><img class="logo-image" width="48" height="48" style="border-radius: 100%;height: 48px;vertical-align: middle;width: 48px;" src="https://${domain}/icon-192.png" alt="${name}"></td>
+<td><img class="logo-image" width="48" height="48" style="border-radius: 100%;height: 48px;vertical-align: middle;width: 48px;" src="${icon}" alt="${name}"></td>
 <td class="logo-text" style="font-size: 24px;font-weight: bold;padding-left: 8px;color: #222222;">${name}</td>
 </tr>
 </table>

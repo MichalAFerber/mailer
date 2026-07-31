@@ -3,6 +3,7 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import worker, { contactHtml, escapeHtml, _resetReportThrottle } from '../src/index.js';
+import { renderShell } from '../src/shell.js';
 
 class FakeKV {
   constructor(entries = {}) {
@@ -353,6 +354,25 @@ test('health is up; unknown routes 404 with the error envelope', async () => {
 
 test('escapeHtml covers the full character map', () => {
   assert.equal(escapeHtml(`&<>"'`), '&amp;&lt;&gt;&quot;&#39;');
+});
+
+test('GET /icon-192.png serves the embedded PNG', async () => {
+  const res = await worker.fetch(new Request('https://mailer.example/icon-192.png'), makeEnv());
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('Content-Type'), 'image/png');
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  // PNG magic number
+  assert.deepEqual([...bytes.slice(0, 4)], [0x89, 0x50, 0x4e, 0x47]);
+});
+
+test('shell logo honors the projection icon_url override', () => {
+  const base = { name: 'Ops', domain: 'thompsonblack.us', from_addr: 'noreply@thompsonblack.us' };
+  const args = { heading: 'x', preheader: 'x', body: 'x' };
+  const plain = renderShell(base, args);
+  assert.ok(plain.includes('src="https://thompsonblack.us/icon-192.png"'));
+  const overridden = renderShell(
+    { ...base, icon_url: 'https://mailer.thompsonblack.us/icon-192.png' }, args);
+  assert.ok(overridden.includes('src="https://mailer.thompsonblack.us/icon-192.png"'));
 });
 
 // --- outbound send failures are reported, not merely console.error'd ---------

@@ -15,14 +15,15 @@
 //
 // Per-product config comes from the PRODUCTS KV projection (written by
 // `notifyctl sync-mailer` from the herald registry): {name, domain, from_addr,
-// contact_to, allowed_origins, turnstile_ref?, send_token_sha256?}. Renderers
-// live here in tested code; only per-product data varies.
+// contact_to, allowed_origins, turnstile_ref?, send_token_sha256?, icon_url?}.
+// Renderers live here in tested code; only per-product data varies.
 //
 // `turnstile_ref` NAMES a worker secret (never a value). A Turnstile widget
 // caps at 10 domains, so a single shared secret would also cap the platform at
 // 10 contact-form products; a product carrying a ref rides its own widget.
 
 import { renderShell } from './shell.js';
+import { iconBytes } from './icon.js';
 
 const LIMITS = { name: 100, email: 254, subject: 150, message: 5000 };
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -34,6 +35,15 @@ export default {
 
     if (request.method === 'GET' && path === '/health') {
       return json({ status: 'up' }, 200);
+    }
+
+    if (request.method === 'GET' && path === '/icon-192.png') {
+      return new Response(iconBytes(), {
+        headers: {
+          'Content-Type': 'image/png',
+          'Cache-Control': 'public, max-age=86400',
+        },
+      });
     }
 
     const m = path.match(/^\/(send|contact)\/([a-z0-9_]+)$/i);
