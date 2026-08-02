@@ -237,6 +237,10 @@ const RENDERERS = {
 // reads as "that was everything" when it means "we stopped".
 const BODY_BUDGET = 88_000;
 
+// Slot the plain lane's pre-rendered body drops into. Never appears in output:
+// renderEmail always has blocks, renderPlain always replaces it.
+const RAW_BODY_MARKER = '<!--TGWAB_BODY-->';
+
 export function renderEmail(doc) {
   const { brand } = doc;
   const parts = [];
@@ -258,7 +262,7 @@ export function renderEmail(doc) {
         + 'limit Gmail clips at. Narrow the report, or split it across messages.',
     }));
   }
-  const body = parts.join('\n');
+  const body = parts.length ? parts.join('\n') : RAW_BODY_MARKER;
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -373,6 +377,27 @@ ${body}
 </html>`;
 
   return { subject: doc.subject, html, text: renderText(doc) };
+}
+
+/**
+ * The same chrome around a pre-rendered body, for the plain `message` lane.
+ *
+ * `bodyHtml` is inserted verbatim and MUST already be escaped — the only caller
+ * is the mailer's reportHtml(), which escapes every line it emits. Nothing that
+ * takes user input should reach this; that is what renderEmail's Block[] is for.
+ *
+ * This exists so the seventeen ~/bin reports that send plain text get the house
+ * template without each one being rewritten into blocks. Their bodies are
+ * already structured — reportHtml turns pipe tables into real tables and `━━`
+ * headings into headings — so what they were missing was the chrome, not the
+ * markup.
+ *
+ * @param {Brand} brand
+ * @param {{subject:string,preheader:string,bodyHtml:string}} o
+ */
+export function renderPlain(brand, { subject, preheader, bodyHtml }) {
+  return renderEmail({ brand, subject, preheader, blocks: [] })
+    .html.replace(RAW_BODY_MARKER, bodyHtml);
 }
 
 // ── plain text ────────────────────────────────────────────────────────────
