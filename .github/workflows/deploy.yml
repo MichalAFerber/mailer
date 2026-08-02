@@ -1,7 +1,8 @@
 name: deploy
 
-# Push to main deploys the worker. Docs-only changes are ignored (paths filter),
-# and the tests run first so a red build never reaches production.
+# Pull requests run the tests. Push to main runs them again, deploys, and then
+# proves the deployed worker can actually render. Docs-only changes are ignored
+# (paths filter), and `deploy` needs `test`, so a red build never ships.
 #
 # Added because merging a PR here previously changed nothing in production: the
 # repo had no deploy path, so every release depended on someone remembering to
@@ -16,14 +17,29 @@ on:
       - 'wrangler.toml'
       - 'package.json'
       - '.github/workflows/deploy.yml'
+  # Pull requests run `test` and stop there. Without this, the first signal on a
+  # change arrived only after it merged and was already deploying — which is how
+  # the 2026-08-02 missing-import bug reached production unopposed.
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'test/**'
+      - 'wrangler.toml'
+      - 'package.json'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: true
 
+# Split into two jobs so the check NAME tells the truth. A single gated job would
+# report a green "deploy" on a pull request that deployed nothing, and a status
+# that reads as more than it did is the same failure as a suite reporting 16
+# tests because two files failed to load.
 jobs:
-  deploy:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,6 +52,22 @@ jobs:
 
       - name: Test
         run: node --test
+
+  deploy:
+    needs: test
+    # Nothing to deploy from a PR, and a fork PR cannot read the secrets anyway.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Required here too, and not only for the tests: wrangler bundles the
+      # worker, so `markdown-it` must be resolvable or the build has no parser.
+      - name: Install
+        run: npm ci
 
       # Fail loudly rather than skipping. A guarded deploy that silently no-ops
       # reports green while shipping nothing — the failure mode already seen on
