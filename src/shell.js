@@ -21,7 +21,6 @@ export function renderShell(product, { heading, preheader, body }) {
   const icon = escapeHtml(product.icon_url || `https://${product.domain}/icon-192.png`);
   const head = escapeHtml(heading);
   const pre = escapeHtml(preheader);
-  const year = new Date().getFullYear();
   return `<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
 <html lang="en">
 <head>
@@ -79,7 +78,7 @@ td.spacer-major { line-height: 16px !important; }
 </tr>
 <tr><td class="spacer-major" style="line-height: 40px;">&nbsp;</td></tr>
 <tr>
-<td class="copyright" style="color: #777777;font-size: 14px;">&copy; ${year} Michal Ferber &middot; ${escapeHtml(POSTAL_ADDRESS)}</td>
+<td class="copyright" style="color: #777777;font-size: 14px;">${escapeHtml(POSTAL_ADDRESS)}</td>
 </tr>
 </table>
 </div>

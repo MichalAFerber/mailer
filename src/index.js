@@ -86,7 +86,10 @@ function brandOf(product) {
     accent: product.accent || '#a8322a',
     footerNotice: `Sent by ${product.name} from ${product.from_addr}. `
       + 'Add that address to your contacts so this keeps landing in the inbox.',
-    footerLegal: `© ${new Date().getFullYear()} Michal Ferber · ThompsonBlack LLC · PO Box 3071, Florence SC 29502`,
+    // CAN-SPAM requires a valid physical postal address; it does not require a
+    // copyright line, and a notice claiming rights over a transactional receipt
+    // is noise. Legal entity + address is the whole obligation.
+    footerLegal: 'ThompsonBlack LLC · PO Box 3071, Florence SC 29502',
     unsubscribeUrl: product.unsubscribe_url,
   };
 }
