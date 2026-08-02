@@ -23,9 +23,12 @@
 // 10 contact-form products; a product carrying a ref rides its own widget.
 
 import { renderShell } from './shell.js';
+import { renderEmail } from './template.js';
 import { iconBytes } from './icon.js';
 
-const LIMITS = { name: 100, email: 254, subject: 150, message: 5000 };
+// `blocks` is capped so one caller cannot post an unbounded document; the
+// renderer additionally budgets the rendered size against Gmail's clip point.
+const LIMITS = { name: 100, email: 254, subject: 150, message: 5000, blocks: 200 };
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default {
@@ -71,6 +74,23 @@ export default {
   },
 };
 
+
+// Brand for the block renderer, derived from the same KV projection renderShell
+// uses — so a product looks identical whichever lane it sends through. The logo
+// is the product's own /icon-192.png (§11 manifest icon, absolute https) unless
+// the projection carries an explicit icon_url.
+function brandOf(product) {
+  return {
+    name: product.name,
+    logoUrl: product.icon_url || `https://${product.domain}/icon-192.png`,
+    accent: product.accent || '#a8322a',
+    footerNotice: `Sent by ${product.name} from ${product.from_addr}. `
+      + 'Add that address to your contacts so this keeps landing in the inbox.',
+    footerLegal: `© ${new Date().getFullYear()} Michal Ferber · ThompsonBlack LLC · PO Box 3071, Florence SC 29502`,
+    unsubscribeUrl: product.unsubscribe_url,
+  };
+}
+
 // ---------------------------------------------------------------- /send ----
 
 // `slug` comes from the ROUTE, not from `product`: the KV projection carries only
@@ -90,8 +110,12 @@ async function handleSend(request, env, product, ctx, slug) {
   }
   const subject = clean(b.subject, LIMITS.subject);
   const message = String(b.message ?? '').slice(0, LIMITS.message);
-  if (!subject || !message) {
-    return json({ error: 'subject and message are required', code: 'bad_payload' }, 400);
+  // `blocks` is the structured lane: callers that pass it get the full template
+  // (stat rows, data tables, status pills). Callers that pass `message` keep the
+  // plain-text-in-a-shell behaviour unchanged — this is additive, not a swap.
+  const blocks = Array.isArray(b.blocks) ? b.blocks.slice(0, LIMITS.blocks) : null;
+  if (!subject || (!message && !blocks)) {
+    return json({ error: 'subject and either message or blocks are required', code: 'bad_payload' }, 400);
   }
   const to = clean(b.to, LIMITS.email) || product.contact_to;
   const replyTo = clean(b.reply_to, LIMITS.email);
@@ -100,16 +124,31 @@ async function handleSend(request, env, product, ctx, slug) {
   }
   const fromName = clean(b.name, LIMITS.name) || product.name;
 
+  const rendered = blocks
+    ? renderEmail({
+        brand: brandOf(product),
+        subject,
+        preheader: clean(b.preheader, LIMITS.subject) || subject,
+        blocks,
+      })
+    : null;
+
   const sent = await sendEmail(env, {
     from: `${fromName} <${product.from_addr}>`,
     to,
     replyTo,
     subject,
-    html: renderShell(product, {
-      heading: subject,
-      preheader: subject,
-      body: reportHtml(message),
-    }),
+    html: rendered
+      ? rendered.html
+      : renderShell(product, {
+          heading: subject,
+          preheader: subject,
+          body: reportHtml(message),
+        }),
+    // A text/plain alternative ships with every block-rendered message: a missing
+    // text part hurts deliverability and makes the mail unreadable in text-only
+    // clients and most watch notifications.
+    text: rendered ? rendered.text : undefined,
     slug,
     lane: 'send',
     ctx,
@@ -309,7 +348,7 @@ function clean(v, max) {
 // ------------------------------------------------------------- delivery ----
 
 // ForwardEmail REST with the 3-attempt retry proven in resizewizard-api.
-async function sendEmail(env, { from, to, replyTo, subject, html, slug, lane, ctx }) {
+async function sendEmail(env, { from, to, replyTo, subject, html, text, slug, lane, ctx }) {
   const auth = 'Basic ' + btoa(env.FORWARDEMAIL_API_KEY + ':');
   let lastError = '';
   for (let attempt = 1; attempt <= 3; attempt++) {
