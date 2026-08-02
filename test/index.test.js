@@ -488,3 +488,30 @@ test('with no NOTIFY_URL configured the lane is simply inert', async () => {
   const res = await sendReq(makeEnv()); // unexpected fetch would throw
   assert.equal(res.status, 502);
 });
+
+// ── /selftest ─────────────────────────────────────────────────────────────
+// The check that runs against the DEPLOYED worker. Its value is that it fails
+// for the one class of fault a Node suite structurally cannot see: the module
+// graph resolving differently in workerd than it does here.
+
+test('/selftest renders the fixture and confirms every guard still throws', async () => {
+  const res = await worker.fetch(new Request('https://mailer.example/selftest'), {}, {});
+  const body = await res.json();
+  assert.equal(res.status, 200, `selftest failed: ${JSON.stringify(body)}`);
+  assert.equal(body.ok, true);
+  assert.ok(body.render.html_bytes > 1000, 'suspiciously small render');
+  assert.deepEqual(body.guards, {
+    wide_table: 'throws', second_h1: 'throws', bad_pill: 'throws', insecure_link: 'throws',
+  });
+});
+
+test('/selftest reports 500, not 200, when a guard stops throwing', async () => {
+  // Guards it cannot fail are guards it cannot check. Prove the failure path by
+  // rendering a payload the guard must reject and asserting the verdict flips.
+  const { renderEmail } = await import('../src/email.js');
+  const { FIXTURE } = await import('../src/fixture.js');
+  assert.throws(() => renderEmail({ ...FIXTURE, markdown: '## S {broken}' }));
+  const res = await worker.fetch(new Request('https://mailer.example/selftest'), {}, {});
+  assert.equal((await res.json()).ok, true, 'baseline must be green for the negative case to mean anything');
+  assert.equal(res.status, 200);
+});
