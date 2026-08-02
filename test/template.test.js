@@ -84,7 +84,7 @@ test('the card table is border-separate so its radius and border agree', () => {
   const { html } = renderEmail(doc());
   // Collapsed tables ignore radius on borders: the background still clips to the
   // curve but the border draws square, producing a doubled corner.
-  assert.match(html, /max-width:900px;border-collapse:separate;border-spacing:0;/);
+  assert.match(html, /max-width:640px;border-collapse:separate;border-spacing:0;/);
   assert.match(html, /table \{ border-collapse:collapse; \}/, 'data tables must stay collapsed');
 });
 

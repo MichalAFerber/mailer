@@ -237,9 +237,6 @@ const RENDERERS = {
 // reads as "that was everything" when it means "we stopped".
 const BODY_BUDGET = 88_000;
 
-// Slot the plain lane's pre-rendered body drops into. Never appears in output:
-// renderEmail always has blocks, renderPlain always replaces it.
-const RAW_BODY_MARKER = '<!--TGWAB_BODY-->';
 
 export function renderEmail(doc) {
   const { brand } = doc;
@@ -262,7 +259,7 @@ export function renderEmail(doc) {
         + 'limit Gmail clips at. Narrow the report, or split it across messages.',
     }));
   }
-  const body = parts.length ? parts.join('\n') : RAW_BODY_MARKER;
+  const body = parts.join('\n');
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -327,12 +324,12 @@ export function renderEmail(doc) {
 </div>
 
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${T.page}" class="page" style="background:${T.page};">
-<tr><td align="center" class="wrap" style="padding:32px 24px;">
+<tr><td align="center" class="wrap" style="padding:32px;">
 
 <!-- border-collapse MUST be separate here: the card cell has both a border and a
      border-radius, and collapsed tables ignore radius on borders (bg still clips,
      border draws square = doubled corner). Data tables below stay collapsed. -->
-<table role="presentation" width="900" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:900px;border-collapse:separate;border-spacing:0;">
+<table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:640px;border-collapse:separate;border-spacing:0;">
 
   <tr><td style="padding:0 4px 18px 4px;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
@@ -379,26 +376,6 @@ ${body}
   return { subject: doc.subject, html, text: renderText(doc) };
 }
 
-/**
- * The same chrome around a pre-rendered body, for the plain `message` lane.
- *
- * `bodyHtml` is inserted verbatim and MUST already be escaped — the only caller
- * is the mailer's reportHtml(), which escapes every line it emits. Nothing that
- * takes user input should reach this; that is what renderEmail's Block[] is for.
- *
- * This exists so the seventeen ~/bin reports that send plain text get the house
- * template without each one being rewritten into blocks. Their bodies are
- * already structured — reportHtml turns pipe tables into real tables and `━━`
- * headings into headings — so what they were missing was the chrome, not the
- * markup.
- *
- * @param {Brand} brand
- * @param {{subject:string,preheader:string,bodyHtml:string}} o
- */
-export function renderPlain(brand, { subject, preheader, bodyHtml }) {
-  return renderEmail({ brand, subject, preheader, blocks: [] })
-    .html.replace(RAW_BODY_MARKER, bodyHtml);
-}
 
 // ── plain text ────────────────────────────────────────────────────────────
 // Generated from the same Block[], never by stripping tags. A missing text part
