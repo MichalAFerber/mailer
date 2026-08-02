@@ -18,7 +18,7 @@ const brand = {
   logoUrl: 'https://mailer.thompsonblack.us/icon-192.png',
   accent: '#a8322a',
   footerNotice: 'Sent by ops in response to a scheduled job on thompsonblack.us.',
-  footerLegal: '© 2026 Michal Ferber · ThompsonBlack LLC · PO Box 3071, Florence SC 29502',
+  footerLegal: 'ThompsonBlack LLC · PO Box 3071, Florence SC 29502',
   unsubscribeUrl: 'https://thompsonblack.us/unsubscribe',
 };
 
@@ -84,7 +84,7 @@ test('the card table is border-separate so its radius and border agree', () => {
   const { html } = renderEmail(doc());
   // Collapsed tables ignore radius on borders: the background still clips to the
   // curve but the border draws square, producing a doubled corner.
-  assert.match(html, /max-width:640px;border-collapse:separate;border-spacing:0;/);
+  assert.match(html, /max-width:900px;border-collapse:separate;border-spacing:0;/);
   assert.match(html, /table \{ border-collapse:collapse; \}/, 'data tables must stay collapsed');
 });
 
@@ -127,6 +127,22 @@ test('data tables cap at three columns', () => {
   const { html } = renderEmail(d);
   const headerCells = (html.match(/text-transform:uppercase;color:#5b636e;padding:8px 10px/g) || []).length;
   assert.equal(headerCells, 3, 'a fourth column was rendered');
+});
+
+test('applies per-column widths to header and body cells alike', () => {
+  const d = {
+    brand, subject: 's', preheader: 'p',
+    blocks: [{ type: 'table', columns: ['Event', 'Date', 'Time'],
+               widths: ['58%', '24%', '18%'],
+               rows: [['Standup', 'Today', '09:30'], ['Review', 'Tue 5 Aug', 'all day']] }],
+  };
+  const { html } = renderEmail(d);
+  // Header + one cell per row, per column: widths must appear on every one or
+  // the grid wanders between rows.
+  for (const pct of ['58%', '24%', '18%']) {
+    const n = (html.match(new RegExp(`width="${pct}"`, 'g')) || []).length;
+    assert.equal(n, 3, `width ${pct} applied ${n} times, expected 3 (header + 2 rows)`);
+  }
 });
 
 test('stays well under the 100KB Gmail clipping threshold', () => {

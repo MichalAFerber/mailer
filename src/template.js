@@ -35,7 +35,7 @@
  *         | {type:'text',body:string}
  *         | {type:'callout',status:Status,title:string,body:string}
  *         | {type:'links',items:{href:string,label:string,meta?:string}[]}
- *         | {type:'table',columns:string[],rows:Cell[][],sublabel?:string}
+ *         | {type:'table',columns:string[],rows:Cell[][],sublabel?:string,widths?:string[]}
  *         | {type:'mono',content:string}
  *         | {type:'button',href:string,label:string}
  *         | {type:'signoff',text:string}} Block
@@ -169,8 +169,13 @@ const blockLinks = (b) => `
 // makes a digest survive a 375px screen. Three columns max.
 const blockTable = (b) => {
   const cols = b.columns.slice(0, 3);
+  // Explicit widths keep every row's columns aligned. Without them each cell
+  // sizes to its own content and the grid visibly wanders row to row — worse
+  // the more rows there are, which is exactly when a table is worth having.
+  const widths = Array.isArray(b.widths) && b.widths.length === cols.length ? b.widths : null;
+  const w = (i) => (widths ? ` width="${esc(widths[i])}"` : '');
   const head = cols.map((c, i) => `
-        <td class="label muted cell"${i ? ' align="right"' : ''} style="font-family:${MONO_S};font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:${T.muted};padding:8px 10px;border-bottom:1px solid ${T.rule};">${esc(c)}</td>`).join('');
+        <td class="label muted cell"${i ? ' align="right"' : ''}${w(i)} style="font-family:${MONO_S};font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:${T.muted};padding:8px 10px;border-bottom:1px solid ${T.rule};">${esc(c)}</td>`).join('');
   const body = b.rows.map((row) => `
       <tr>${row.slice(0, 3).map((cell, i) => {
         const o = typeof cell === 'string' ? { text: cell } : cell;
@@ -182,7 +187,7 @@ const blockTable = (b) => {
           ? `padding:11px 10px;border-bottom:1px solid ${T.rule};`
           : `font-family:${MONO_S};font-size:13px;color:${i ? T.muted : T.ink};padding:11px 10px;border-bottom:1px solid ${T.rule};word-break:break-word;`;
         return `
-        <td class="cell${o.pill ? '' : ` mono ${i ? 'muted' : 'ink'}`}"${align} style="${style}">${inner}</td>`;
+        <td class="cell${o.pill ? '' : ` mono ${i ? 'muted' : 'ink'}`}"${align}${w(i)} style="${style}">${inner}</td>`;
       }).join('')}
       </tr>`).join('');
   return `
@@ -318,12 +323,12 @@ export function renderEmail(doc) {
 </div>
 
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${T.page}" class="page" style="background:${T.page};">
-<tr><td align="center" class="wrap" style="padding:32px;">
+<tr><td align="center" class="wrap" style="padding:32px 24px;">
 
 <!-- border-collapse MUST be separate here: the card cell has both a border and a
      border-radius, and collapsed tables ignore radius on borders (bg still clips,
      border draws square = doubled corner). Data tables below stay collapsed. -->
-<table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:640px;border-collapse:separate;border-spacing:0;">
+<table role="presentation" width="900" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:900px;border-collapse:separate;border-spacing:0;">
 
   <tr><td style="padding:0 4px 18px 4px;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
