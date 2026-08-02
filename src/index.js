@@ -23,7 +23,7 @@
 // 10 contact-form products; a product carrying a ref rides its own widget.
 
 import { renderShell } from './shell.js';
-import { renderEmail, renderPlain } from './template.js';
+import { renderEmail } from './template.js';
 import { iconBytes } from './icon.js';
 
 // `blocks` is capped so one caller cannot post an unbounded document; the
@@ -143,10 +143,10 @@ async function handleSend(request, env, product, ctx, slug) {
     subject,
     html: rendered
       ? rendered.html
-      : renderPlain(brandOf(product), {
-          subject,
-          preheader: clean(b.preheader, LIMITS.subject) || subject,
-          bodyHtml: reportHtml(message),
+      : renderShell(product, {
+          heading: subject,
+          preheader: subject,
+          body: reportHtml(message),
         }),
     // A text/plain alternative ships with every block-rendered message: a missing
     // text part hurts deliverability and makes the mail unreadable in text-only
