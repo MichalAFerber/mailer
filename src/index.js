@@ -28,7 +28,7 @@ import { iconBytes } from './icon.js';
 
 // `blocks` is capped so one caller cannot post an unbounded document; the
 // renderer additionally budgets the rendered size against Gmail's clip point.
-const LIMITS = { name: 100, email: 254, subject: 150, message: 5000, blocks: 200 };
+const LIMITS = { name: 100, email: 254, subject: 150, message: 5000, blocks: 200, markdown: 40000 };
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default {
@@ -38,6 +38,20 @@ export default {
 
     if (request.method === 'GET' && path === '/health') {
       return json({ status: 'up' }, 200);
+      }
+
+      // Dev-only preview: renders a fixture exercising every component, so a
+      // layout change can be eyeballed without sending mail. Gated on an env
+      // flag rather than a header — a preview route reachable in production is
+      // an unauthenticated render endpoint.
+      if (path === '/preview' && env.PREVIEW === '1') {
+        const { renderEmail: rm } = await import('./email.js');
+        const { FIXTURE } = await import('./fixture.js');
+        const out = rm(FIXTURE);
+        return new Response(url.searchParams.get('text') === '1' ? out.text : out.html, {
+          headers: { 'Content-Type': url.searchParams.get('text') === '1'
+            ? 'text/plain; charset=utf-8' : 'text/html; charset=utf-8' },
+        });
     }
 
     if (request.method === 'GET' && path === '/icon-192.png') {
@@ -117,8 +131,12 @@ async function handleSend(request, env, product, ctx, slug) {
   // (stat rows, data tables, status pills). Callers that pass `message` keep the
   // plain-text-in-a-shell behaviour unchanged — this is additive, not a swap.
   const blocks = Array.isArray(b.blocks) ? b.blocks.slice(0, LIMITS.blocks) : null;
-  if (!subject || (!message && !blocks)) {
-    return json({ error: 'subject and either message or blocks are required', code: 'bad_payload' }, 400);
+  // The markdown lane is what §6 documents for reports: scripts author markdown,
+  // the mailer parses it to an AST and emits components. It is preferred over
+  // `blocks`, which stays for callers already on it.
+  const markdown = typeof b.markdown === 'string' ? b.markdown.slice(0, LIMITS.markdown) : null;
+  if (!subject || (!message && !blocks && !markdown)) {
+    return json({ error: 'subject and one of message, markdown or blocks are required', code: 'bad_payload' }, 400);
   }
   const to = clean(b.to, LIMITS.email) || product.contact_to;
   const replyTo = clean(b.reply_to, LIMITS.email);
@@ -127,14 +145,44 @@ async function handleSend(request, env, product, ctx, slug) {
   }
   const fromName = clean(b.name, LIMITS.name) || product.name;
 
-  const rendered = blocks
-    ? renderEmail({
+  let rendered = null;
+  if (markdown) {
+    try {
+      rendered = renderMarkdownEmail({
+        brand: {
+          name: product.name,
+          logoUrl: product.icon_url || `https://${product.domain}/icon-192.png`,
+          accent: product.accent || '#a8322a',
+          footerNotice: `Sent by ${product.name} from ${product.from_addr}. `
+            + 'Add that address to your contacts so this keeps landing in the inbox.',
+          footerPostal: 'ThompsonBlack LLC · PO Box 3071, Florence SC 29502',
+          unsubscribeUrl: product.unsubscribe_url,
+        },
+        subject,
+        preheader: clean(b.preheader, LIMITS.subject) || subject,
+        markdown,
+        eyebrow: clean(b.eyebrow, LIMITS.name) || undefined,
+        signoff: clean(b.signoff, LIMITS.subject) || undefined,
+      });
+    } catch (e) {
+      // §9 fails loudly. Surfacing the reason to the caller is the point: the
+      // author sees "table has 4 columns" rather than a mangled table landing
+      // in someone's inbox.
+      if (e instanceof MarkdownError) {
+        return json({ error: e.message, code: 'bad_markdown' }, 400);
+      }
+      throw e;
+    }
+  }
+  const renderedBlocks = !markdown && blocks
+    ? renderBlocks({
         brand: brandOf(product),
         subject,
         preheader: clean(b.preheader, LIMITS.subject) || subject,
         blocks,
       })
     : null;
+  rendered = rendered || renderedBlocks;
 
   const sent = await sendEmail(env, {
     from: `${fromName} <${product.from_addr}>`,
@@ -152,6 +200,7 @@ async function handleSend(request, env, product, ctx, slug) {
     // text part hurts deliverability and makes the mail unreadable in text-only
     // clients and most watch notifications.
     text: rendered ? rendered.text : undefined,
+    unsubscribe: product.unsubscribe_url,
     slug,
     lane: 'send',
     ctx,
@@ -351,7 +400,7 @@ function clean(v, max) {
 // ------------------------------------------------------------- delivery ----
 
 // ForwardEmail REST with the 3-attempt retry proven in resizewizard-api.
-async function sendEmail(env, { from, to, replyTo, subject, html, text, slug, lane, ctx }) {
+async function sendEmail(env, { from, to, replyTo, subject, html, text, unsubscribe, slug, lane, ctx }) {
   const auth = 'Basic ' + btoa(env.FORWARDEMAIL_API_KEY + ':');
   let lastError = '';
   for (let attempt = 1; attempt <= 3; attempt++) {
