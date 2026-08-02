@@ -26,6 +26,7 @@ import { renderShell } from './shell.js';
 import { renderEmail as renderBlocks } from './template.js';
 import { renderEmail as renderMarkdownEmail, MarkdownError } from './email.js';
 import { iconBytes } from './icon.js';
+import { FIXTURE } from './fixture.js';
 
 // `blocks` is capped so one caller cannot post an unbounded document; the
 // renderer additionally budgets the rendered size against Gmail's clip point.
@@ -39,20 +40,66 @@ export default {
 
     if (request.method === 'GET' && path === '/health') {
       return json({ status: 'up' }, 200);
-      }
+    }
 
-      // Dev-only preview: renders a fixture exercising every component, so a
-      // layout change can be eyeballed without sending mail. Gated on an env
-      // flag rather than a header — a preview route reachable in production is
-      // an unauthenticated render endpoint.
-      if (path === '/preview' && env.PREVIEW === '1') {
-        const { renderEmail: rm } = await import('./email.js');
-        const { FIXTURE } = await import('./fixture.js');
-        const out = rm(FIXTURE);
-        return new Response(url.searchParams.get('text') === '1' ? out.text : out.html, {
-          headers: { 'Content-Type': url.searchParams.get('text') === '1'
-            ? 'text/plain; charset=utf-8' : 'text/html; charset=utf-8' },
-        });
+    // Post-deploy self-test. Exercises the whole render path in-process and
+    // asserts the §9 guards still fire, then reports rather than sending.
+    //
+    // It exists because every render failure this worker has had looked healthy
+    // from outside: /health returned 200 while `handleSend` could not run at all
+    // (2026-08-02, renderMarkdownEmail and MarkdownError were used but never
+    // imported — a clean-looking merge, 68 green tests, and an opaque 1101 in
+    // production). A module-graph fault is exactly what a Node test suite cannot
+    // see, so the check has to run in the deployed runtime.
+    //
+    // Deliberately unauthenticated and deliberately does NOT send: CI can call it
+    // with no secret, and a smoke test that emailed on every deploy would violate
+    // the rule that a job with nothing to say stays silent.
+    if (request.method === 'GET' && path === '/selftest') {
+      const report = { ok: false, render: null, guards: {} };
+      try {
+        const out = renderMarkdownEmail(FIXTURE);
+        report.render = { html_bytes: out.html.length, text_bytes: out.text.length };
+        // Every guard must still throw. A change that quietly disables one would
+        // otherwise pass every other check and only surface as a mangled email.
+        const guards = {
+          wide_table: '| a | b | c | d |\n|---|---|---|---|\n| 1 | 2 | 3 | 4 |\n',
+          second_h1: '# A\n\n# B\n',
+          bad_pill: '## S {broken}',
+          insecure_link: '[a](http://x.test)',
+        };
+        for (const [name, markdown] of Object.entries(guards)) {
+          try {
+            renderMarkdownEmail({ ...FIXTURE, markdown });
+            report.guards[name] = 'DID NOT THROW';
+          } catch (e) {
+            // instanceof, because that is the predicate the send path uses to turn a
+            // bad payload into a 400. If it ever stops holding in the deployed
+            // runtime, every guard silently becomes a 500 — check what ships.
+            report.guards[name] = e instanceof MarkdownError
+              ? 'throws'
+              : `wrong error: ${e?.constructor?.name ?? typeof e}`;
+          }
+        }
+        report.ok = Boolean(report.render)
+          && Object.values(report.guards).every((v) => v === 'throws');
+      } catch (e) {
+        report.error = `${e?.name}: ${e?.message}`;
+      }
+      return json(report, report.ok ? 200 : 500);
+    }
+
+    // Dev-only preview: renders the same fixture for eyeballing a layout change.
+    // Gated on an env flag rather than a header — an unauthenticated route that
+    // returns full HTML is not something to leave reachable in production.
+    if (path === '/preview' && env.PREVIEW === '1') {
+      const wantText = url.searchParams.get('text') === '1';
+      const out = renderMarkdownEmail(FIXTURE);
+      return new Response(wantText ? out.text : out.html, {
+        headers: {
+          'Content-Type': wantText ? 'text/plain; charset=utf-8' : 'text/html; charset=utf-8',
+        },
+      });
     }
 
     if (request.method === 'GET' && path === '/icon-192.png') {

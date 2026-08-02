@@ -31,6 +31,9 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Install
+        run: npm ci
+
       - name: Test
         run: node --test
 
@@ -69,3 +72,36 @@ jobs:
           # account_id lives in wrangler.toml. Secrets/vars are NOT touched.
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           wranglerVersion: '4'
+
+      # A deploy is not proven by a 200 from /health. On 2026-08-02 this worker
+      # deployed cleanly, answered /health, and could not render a single message
+      # — two symbols were used but never imported, so `handleSend` threw 1101 on
+      # every request. 68 green tests could not see it: the fault was in how the
+      # module graph resolved in workerd, not in any behaviour Node executes.
+      #
+      # /selftest runs the real render path in the deployed runtime and asserts
+      # the §9 guards still throw. It sends no mail and needs no token, so this
+      # step adds no secret to CI and cannot email anyone on a merge.
+      - name: Smoke test the deployed worker
+        run: |
+          URL=https://mailer.thompsonblack.us/selftest
+          for attempt in 1 2 3 4 5 6; do
+            # curl's own %{http_code} is 000 when the connection fails; `|| true`
+            # keeps that from tripping `set -e` without appending a second 000.
+            code=$(curl -sS -o selftest.json -w '%{http_code}' --max-time 20 "$URL" || true)
+            code=${code:-000}
+            if [ "$code" = "200" ]; then break; fi
+            # A JSON body means our own worker answered and judged itself failed.
+            # That is a verdict, not a propagation delay — stop retrying it.
+            if grep -qE '"ok":[[:space:]]*false' selftest.json 2>/dev/null; then break; fi
+            echo "attempt $attempt: HTTP $code — waiting for the new version to go live"
+            sleep 5
+          done
+          echo "--- GET /selftest -> $code ---"
+          cat selftest.json 2>/dev/null || echo "(no body)"
+          echo
+          if [ "$code" != "200" ]; then
+            echo "::error::the deployed worker failed its self-test (HTTP $code). The deploy succeeded but the running code cannot render mail."
+            exit 1
+          fi
+          echo "deployed worker renders, and every guard still throws."
