@@ -31,6 +31,13 @@ jobs:
         with:
           node-version: '22'
 
+      # The worker had no dependencies until markdown-it arrived, so this step did
+      # not exist. Without it `node --test` cannot import the parser and the two
+      # test files that use it fail to LOAD — reporting 16 tests instead of 68,
+      # which reads like a smaller suite rather than a broken one.
+      - name: Install
+        run: npm ci
+
       - name: Test
         run: node --test
 
