@@ -137,6 +137,31 @@ export default {
 };
 
 
+// The brand the §9 markdown renderer takes. Distinct from brandOf() below, which
+// feeds the block renderer and calls the same field footerLegal — one helper for
+// both markdown callers, so the postal notice cannot drift between the two lanes.
+function mdBrand(product) {
+  return {
+    name: product.name,
+    logoUrl: product.icon_url || `https://${product.domain}/icon-192.png`,
+    accent: product.accent || '#a8322a',
+    footerNotice: `Sent by ${product.name} from ${product.from_addr}. `
+      + 'Add that address to your contacts so this keeps landing in the inbox.',
+    footerPostal: 'ThompsonBlack LLC · PO Box 3071, Florence SC 29502',
+    unsubscribeUrl: product.unsubscribe_url,
+  };
+}
+
+// Wrap untrusted text in a fence longer than any backtick run inside it. A
+// submitter whose message contains ``` would otherwise close the fence early and
+// spill the rest of their text into the parser as live markdown.
+function fenceBlock(body) {
+  const longest = (String(body).match(/`+/g) || [])
+    .reduce((n, run) => Math.max(n, run.length), 0);
+  const bars = '`'.repeat(Math.max(3, longest + 1));
+  return `${bars}\n${body}\n${bars}`;
+}
+
 // Brand for the block renderer, derived from the same KV projection renderShell
 // uses — so a product looks identical whichever lane it sends through. The logo
 // is the product's own /icon-192.png (§11 manifest icon, absolute https) unless
@@ -197,15 +222,7 @@ async function handleSend(request, env, product, ctx, slug) {
   if (markdown) {
     try {
       rendered = renderMarkdownEmail({
-        brand: {
-          name: product.name,
-          logoUrl: product.icon_url || `https://${product.domain}/icon-192.png`,
-          accent: product.accent || '#a8322a',
-          footerNotice: `Sent by ${product.name} from ${product.from_addr}. `
-            + 'Add that address to your contacts so this keeps landing in the inbox.',
-          footerPostal: 'ThompsonBlack LLC · PO Box 3071, Florence SC 29502',
-          unsubscribeUrl: product.unsubscribe_url,
-        },
+        brand: mdBrand(product),
         subject,
         preheader: clean(b.preheader, LIMITS.subject) || subject,
         markdown,
@@ -298,16 +315,35 @@ async function handleContact(request, env, product, ctx, slug) {
   // The §6 house format, byte for byte: From = site name, Reply-To =
   // submitter, Subject `<SITE>⎯<SUBJECT>`, recipient HARD-FIXED to the
   // registry contact_to (worst-case abuse is Turnstile-gated self-spam).
+  // §9 renders authored markdown and THROWS on anything it cannot map to a
+  // component. Contact input is public and untrusted, so every submitted field
+  // goes inside a fence, where content is escaped verbatim and never parsed.
+  // Outside the fence there is no interpolation at all: a name of
+  // `![x](https://y)` would otherwise be an image token, and an image token
+  // throws — turning one crafted submission into a broken form for everybody.
+  const contactMd = '# New contact form message\n\n'
+    + 'Reply to this email to answer directly.\n\n'
+    // §6 mandates this body layout exactly: four lines, a TAB after each label,
+    // blank line before the message. The tab is normative and is preserved here
+    // verbatim — the mono block is white-space:pre-wrap, so it survives in the
+    // HTML, and the markdown source IS the text/plain part (§10), so the text
+    // part matches the standard's `text` block byte for byte.
+    + `${fenceBlock(`Name:\t${name}\nEmail:\t${email}\n\n${message}`)}\n`;
+  const rendered = renderMarkdownEmail({
+    brand: mdBrand(product),
+    subject: `${product.name}⎯${subject}`,
+    preheader: `${name} via ${product.domain}`,
+    markdown: contactMd,
+    eyebrow: 'Contact form',
+  });
+
   const sent = await sendEmail(env, {
     from: `${product.name} <${product.from_addr}>`,
     to: product.contact_to,
     replyTo: email,
     subject: `${product.name}⎯${subject}`,
-    html: renderShell(product, {
-      heading: 'New contact form message',
-      preheader: `${name} via ${product.domain}`,
-      body: contactHtml({ name, email, message }),
-    }),
+    html: rendered.html,
+    text: rendered.text,
     slug,
     lane: 'contact',
     ctx,
@@ -362,14 +398,6 @@ async function turnstileOk(env, token, request, product) {
 
 // ------------------------------------------------------------ rendering ----
 
-// §6 contact body: Name/Email, blank line, message — preserved with
-// white-space:pre (a raw tab collapses in HTML). Every user value is escaped.
-export function contactHtml({ name, email, message }) {
-  return `<div style="white-space:pre; font-family:system-ui, sans-serif;">Name:\t${escapeHtml(name)}
-Email:\t${escapeHtml(email)}
-
-${escapeHtml(message)}</div>`;
-}
 
 // /send bodies are script reports: pipe tables, "━━ Section" headings, and
 // column-aligned monospace runs. A single white-space:pre div made them
@@ -466,6 +494,12 @@ async function sendEmail(env, { from, to, replyTo, subject, html, text, unsubscr
       if (replyTo) form.set('replyTo', replyTo);
       form.set('subject', subject);
       form.set('html', html);
+      // The text/plain alternative. This was accepted as a parameter and then
+      // dropped on the floor: every renderer built one, nothing ever sent it, and
+      // a comment two lanes up asserted it "ships with every block-rendered
+      // message". A missing text part hurts deliverability and leaves the message
+      // unreadable in text-only clients and most watch notifications.
+      if (text) form.set('text', text);
       const res = await fetch('https://api.forwardemail.net/v1/emails', {
         method: 'POST',
         headers: { Authorization: auth, 'Content-Type': 'application/x-www-form-urlencoded' },

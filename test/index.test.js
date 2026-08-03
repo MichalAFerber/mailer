@@ -2,7 +2,7 @@
 // siteverify + ForwardEmail) are stubbed per test and routed by URL.
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import worker, { contactHtml, escapeHtml, reportHtml, _resetReportThrottle } from '../src/index.js';
+import worker, { escapeHtml, reportHtml, _resetReportThrottle } from '../src/index.js';
 import { renderShell } from '../src/shell.js';
 
 class FakeKV {
@@ -112,25 +112,20 @@ test('GOLDEN: contact email matches the §6 house format byte-for-byte', async (
   assert.equal(mail.replyTo, 'jamie@example.com');
   // U+23AF horizontal line extension, exactly as the standard specifies.
   assert.equal(mail.subject, 'TechGuyWithABeard⎯Question about pricing');
-  // The §6 pre-block rides inside the house shell (renderShell) — assert the
-  // exact block survives verbatim, and the shell chrome is present around it.
-  assert.ok(mail.html.includes(
-    '<div style="white-space:pre; font-family:system-ui, sans-serif;">Name:\tJamie Doe\n' +
-      'Email:\tjamie@example.com\n' +
-      '\n' +
-      'Hello,\nhow much is Pro?\n\nThanks!</div>',
-  ));
-  assert.ok(mail.html.includes('<!DOCTYPE html'));
+  // §6's normative requirement is the BODY LAYOUT — four lines, a tab after each
+  // label, a blank line before the message. The `white-space:pre` div the standard
+  // shows is one way to hold that layout in HTML, not the requirement itself. The
+  // block now rides in the §9 mono block: still pre-wrap, but dark-mode aware and
+  // inside the house template rather than a bare div.
+  //
+  // So assert the layout, in both parts, rather than the markup that carried it.
+  const BLOCK = 'Name:\tJamie Doe\nEmail:\tjamie@example.com\n\nHello,\nhow much is Pro?\n\nThanks!';
+  assert.ok(mail.text.includes(BLOCK), 'the §6 block must survive verbatim in text/plain');
+  assert.ok(mail.html.includes('Name:\tJamie Doe'), 'the tab after the label was lost in HTML');
+  assert.ok(/class="mono-blk[^"]*"[^>]*white-space:pre-wrap/.test(mail.html),
+    'the §6 block must ride in the mono block — the one legitimate pre-wrap');
+  assert.ok(!/white-space:pre;/.test(mail.html), 'the old bare pre div should be gone');
   assert.ok(mail.html.includes('New contact form message'));
-  assert.ok(mail.html.includes('Add <b style="color: #333333;">'));
-});
-
-test('GOLDEN: contactHtml layout is Name/Email/blank/message with a real tab', () => {
-  const html = contactHtml({ name: 'A', email: 'a@b.co', message: 'M' });
-  assert.equal(
-    html,
-    '<div style="white-space:pre; font-family:system-ui, sans-serif;">Name:\tA\nEmail:\ta@b.co\n\nM</div>',
-  );
 });
 
 test('user values are HTML-escaped in the body', async () => {
@@ -148,9 +143,16 @@ test('header injection is stripped from name, email, and subject', async () => {
     subject: 'hi\r\nX-Evil: 1',
   });
   const mail = emailCalls[0];
-  assert.ok(!mail.subject.includes('\r') && !mail.subject.includes('\n'));
-  assert.ok(!mail.html.split('Name:\t')[1].split('\n')[0].includes('Bcc:') || true);
+  // Every field that becomes a header must be flattened. The old assertion here
+  // ended in `|| true`, so it could not fail — it was reporting a pass on a
+  // property it never checked. These check the headers themselves.
+  for (const h of [mail.subject, mail.from, mail.to, mail.replyTo]) {
+    assert.ok(!/[\r\n]/.test(String(h ?? '')), `CR/LF survived into a header: ${h}`);
+  }
   assert.equal(mail.subject, 'TechGuyWithABeard⎯hi X-Evil: 1');
+  // The injected text is not dropped — it is flattened to one line and rendered
+  // as inert body text, which is what makes it harmless rather than invisible.
+  assert.ok(mail.text.includes('Name:\tEve Bcc: victim@example.com'));
 });
 
 // --- Turnstile & origin gates ----------------------------------------------
