@@ -81,8 +81,34 @@ export default {
               : `wrong error: ${e?.constructor?.name ?? typeof e}`;
           }
         }
+        // The contact lane, with input designed to break it. Every site in the
+        // estate posts here, so this is the highest-blast-radius render in the
+        // worker — and the one thing the fixture above does not exercise.
+        // Hostile on purpose: backticks that would close a naive fence, and
+        // constructs (image, 4-column table) that THROW when left unfenced.
+        const hostile = {
+          name: '![x](https://evil.test) **bold**',
+          email: 'a@b.test',
+          message: '```\nnot a real fence\n```\n\n| a | b | c | d |\n|---|---|---|---|\n| 1 | 2 | 3 | 4 |',
+        };
+        const cm = renderMarkdownEmail({
+          ...FIXTURE, markdown: contactMarkdown(hostile), eyebrow: 'Contact form',
+        });
+        report.contact = {
+          renders: true,
+          // §6's tab must survive into both parts, and the hostile markdown must
+          // be inert: escaped text, not a table and not an image request.
+          tab_in_html: cm.html.includes('Name:\t'),
+          tab_in_text: cm.text.includes('Name:\t'),
+          // If the pipes survive as literal text, the table was never parsed —
+          // a parsed table becomes <td> cells and the pipes disappear. Checking
+          // for absence of <table> would be wrong: the layout itself is tables.
+          fence_held: cm.html.includes('| a | b | c | d |') && cm.html.includes('```'),
+          no_img: !/<img[^>]+evil\.test/i.test(cm.html),
+        };
         report.ok = Boolean(report.render)
-          && Object.values(report.guards).every((v) => v === 'throws');
+          && Object.values(report.guards).every((v) => v === 'throws')
+          && Object.values(report.contact).every(Boolean);
       } catch (e) {
         report.error = `${e?.name}: ${e?.message}`;
       }
@@ -150,6 +176,28 @@ function mdBrand(product) {
     footerPostal: 'ThompsonBlack LLC · PO Box 3071, Florence SC 29502',
     unsubscribeUrl: product.unsubscribe_url,
   };
+}
+
+// The §6 contact body. Exported so /selftest can run the REAL composition in the
+// deployed runtime rather than only under Node: the contact lane is public, and a
+// render fault there breaks form submissions for every site in the estate at once.
+//
+// §9 renders authored markdown and THROWS on anything it cannot map to a
+// component. Contact input is public and untrusted, so every submitted field goes
+// inside a fence, where content is escaped verbatim and never parsed. Outside the
+// fence there is no interpolation at all: a name of `![x](https://y)` would
+// otherwise be an image token, and an image token throws — turning one crafted
+// submission into a broken form for everybody.
+//
+// §6 mandates the body layout exactly: four lines, a TAB after each label, blank
+// line before the message. The tab is normative and preserved verbatim — the mono
+// block is white-space:pre-wrap, so it survives in the HTML, and the markdown
+// source IS the text/plain part (§10), so the text part matches the standard's
+// `text` block byte for byte.
+export function contactMarkdown({ name, email, message }) {
+  return '# New contact form message\n\n'
+    + 'Reply to this email to answer directly.\n\n'
+    + `${fenceBlock(`Name:\t${name}\nEmail:\t${email}\n\n${message}`)}\n`;
 }
 
 // Wrap untrusted text in a fence longer than any backtick run inside it. A
@@ -315,20 +363,7 @@ async function handleContact(request, env, product, ctx, slug) {
   // The §6 house format, byte for byte: From = site name, Reply-To =
   // submitter, Subject `<SITE>⎯<SUBJECT>`, recipient HARD-FIXED to the
   // registry contact_to (worst-case abuse is Turnstile-gated self-spam).
-  // §9 renders authored markdown and THROWS on anything it cannot map to a
-  // component. Contact input is public and untrusted, so every submitted field
-  // goes inside a fence, where content is escaped verbatim and never parsed.
-  // Outside the fence there is no interpolation at all: a name of
-  // `![x](https://y)` would otherwise be an image token, and an image token
-  // throws — turning one crafted submission into a broken form for everybody.
-  const contactMd = '# New contact form message\n\n'
-    + 'Reply to this email to answer directly.\n\n'
-    // §6 mandates this body layout exactly: four lines, a TAB after each label,
-    // blank line before the message. The tab is normative and is preserved here
-    // verbatim — the mono block is white-space:pre-wrap, so it survives in the
-    // HTML, and the markdown source IS the text/plain part (§10), so the text
-    // part matches the standard's `text` block byte for byte.
-    + `${fenceBlock(`Name:\t${name}\nEmail:\t${email}\n\n${message}`)}\n`;
+  const contactMd = contactMarkdown({ name, email, message });
   const rendered = renderMarkdownEmail({
     brand: mdBrand(product),
     subject: `${product.name}⎯${subject}`,

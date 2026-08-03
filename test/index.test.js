@@ -505,6 +505,11 @@ test('/selftest renders the fixture and confirms every guard still throws', asyn
   assert.deepEqual(body.guards, {
     wide_table: 'throws', second_h1: 'throws', bad_pill: 'throws', insecure_link: 'throws',
   });
+  // The contact lane is the highest-blast-radius render in the worker — every
+  // site posts to it — and the fixture does not exercise it.
+  assert.deepEqual(body.contact, {
+    renders: true, tab_in_html: true, tab_in_text: true, fence_held: true, no_img: true,
+  });
 });
 
 test('/selftest reports 500, not 200, when a guard stops throwing', async () => {
