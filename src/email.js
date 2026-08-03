@@ -20,9 +20,14 @@ export { MarkdownError };
 const MONO_S = "'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace";
 
 function footerHtml(brand) {
-  // The layout carries no unsubscribe link by default: for ops mail and
-  // genuinely transactional product mail the List-Unsubscribe header is the
-  // correct mechanism, and Gmail/Outlook surface their own affordance from it.
+  // The layout carries no unsubscribe link by default, and the worker sends no
+  // List-Unsubscribe header either — ops alerts and contact-form submissions are
+  // operational mail, which CAN-SPAM exempts from the opt-out requirement.
+  //
+  // This comment used to point at the header as "the correct mechanism" for that
+  // mail. The header was never sent: sendEmail took an `unsubscribe` parameter
+  // and discarded it. The omission is deliberate, not delegated.
+  //
   // A product that sends anything recurring and non-transactional sets
   // unsubscribeUrl, and the link appears. The layout does not decide; the brand
   // config does.

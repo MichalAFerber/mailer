@@ -476,7 +476,17 @@ function clean(v, max) {
 // ------------------------------------------------------------- delivery ----
 
 // ForwardEmail REST with the 3-attempt retry proven in resizewizard-api.
-async function sendEmail(env, { from, to, replyTo, subject, html, text, unsubscribe, slug, lane, ctx }) {
+// No List-Unsubscribe header. Everything this worker sends is operational or
+// transactional — ops alerts, contact-form submissions — which CAN-SPAM exempts
+// from the opt-out requirement, and which is nowhere near the ~5k/day threshold
+// where Gmail and Yahoo require one-click unsubscribe of bulk senders.
+//
+// This once took an `unsubscribe` parameter that was destructured and then never
+// used, so a caller passing it got no header and no error. Removed rather than
+// left in place: a parameter that looks implemented is worse than an absent one.
+// A product that ever does send recurring non-transactional mail sets
+// `unsubscribe_url` in its KV projection and gets the footer link (see email.js).
+async function sendEmail(env, { from, to, replyTo, subject, html, text, slug, lane, ctx }) {
   const auth = 'Basic ' + btoa(env.FORWARDEMAIL_API_KEY + ':');
   let lastError = '';
   for (let attempt = 1; attempt <= 3; attempt++) {
