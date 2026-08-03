@@ -173,3 +173,31 @@ test('worst-case message stays under 100KB', async () => {
   );
   assert.ok(renderEmail(FIXTURE).html.length < 100_000);
 });
+
+test('the brand footer reaches the output, not just the template', async () => {
+  // The layout shipped with the fixture's footer hardcoded and no {{FOOTER}}
+  // token, so footerHtml() was computed and silently dropped: every product's
+  // mail claimed to be "Sent by ops from noreply@thompsonblack.us". It was
+  // correct for ops by coincidence, which is why nothing looked wrong until a
+  // real UploadWizard contact form landed in an inbox.
+  //
+  // The existing "no token survives" test passed throughout — an ABSENT token
+  // leaves nothing to survive. Assert the value arrives, not that the placeholder
+  // is gone.
+  const { renderEmail } = await import('../src/email.js');
+  const { FIXTURE } = await import('../src/fixture.js');
+  const brand = {
+    ...FIXTURE.brand,
+    name: 'UploadWizard',
+    footerNotice: 'Sent by UploadWizard from noreply@uploadwizard.app.',
+    footerPostal: 'ThompsonBlack LLC · PO Box 3071, Florence SC 29502',
+    unsubscribeUrl: 'https://uploadwizard.app/unsub',
+  };
+  const html = renderEmail({ ...FIXTURE, brand }).html;
+  assert.ok(html.includes('Sent by UploadWizard from noreply@uploadwizard.app.'),
+    'the brand footerNotice never reached the output');
+  assert.ok(!html.includes('Sent by ops from'), 'a hardcoded footer is back in the layout');
+  assert.ok(html.includes(brand.footerPostal), 'CAN-SPAM postal address missing');
+  assert.ok(html.includes('https://uploadwizard.app/unsub'),
+    'unsubscribeUrl is set but no link rendered');
+});

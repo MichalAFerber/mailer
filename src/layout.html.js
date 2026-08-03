@@ -90,12 +90,7 @@ export const LAYOUT = String.raw`<!DOCTYPE html>
   
   <tr><td class="foot-pad" style="padding:22px 37px 0 37px;">
     
-    <div class="muted" style="font-size:13px;line-height:1.65;color:#5b636e;">
-      Sent by ops from <span class="ink" style="color:#14161a;font-weight:600;">noreply@thompsonblack.us</span>. Add that address to your contacts so this keeps landing in the inbox.
-    </div>
-    <div class="muted" style="font-size:13px;line-height:1.65;color:#5b636e;padding-top:12px;">
-      ThompsonBlack LLC · PO Box 3071, Florence SC 29502
-    </div>
+    {{FOOTER}}
   </td></tr>
 
 </table>
