@@ -39,7 +39,8 @@ concurrency:
 # that reads as more than it did is the same failure as a suite reporting 16
 # tests because two files failed to load.
 jobs:
-  test:
+  # Job name is the required-check context; the estate requires `ci` everywhere.
+  ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -54,7 +55,7 @@ jobs:
         run: node --test
 
   deploy:
-    needs: test
+    needs: ci
     # Nothing to deploy from a PR, and a fork PR cannot read the secrets anyway.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -117,23 +118,42 @@ jobs:
       - name: Smoke test the deployed worker
         run: |
           URL=https://mailer.thompsonblack.us/selftest
-          for attempt in 1 2 3 4 5 6; do
+          # Retry until the ASSERTIONS pass, not merely until something answers 200.
+          # A deploy propagates for a few seconds, so the first 200 can still be the
+          # PREVIOUS version. That is exactly how this step failed on the deploy that
+          # added muster's binding probes: the request landed 0.2s after "Deployed",
+          # got the old body with HTTP 200, left the loop because the loop only tested
+          # liveness, and then failed an assertion about content that version never
+          # claimed to serve. The retry condition and the pass condition must be the
+          # same condition.
+          healthy() {
+              grep -q '"ok":[[:space:]]*true' selftest.json
+          }
+          for attempt in 1 2 3 4 5 6 7 8; do
             # curl's own %{http_code} is 000 when the connection fails; `|| true`
             # keeps that from tripping `set -e` without appending a second 000.
             code=$(curl -sS -o selftest.json -w '%{http_code}' --max-time 20 "$URL" || true)
             code=${code:-000}
-            if [ "$code" = "200" ]; then break; fi
-            # A JSON body means our own worker answered and judged itself failed.
-            # That is a verdict, not a propagation delay — stop retrying it.
-            if grep -qE '"ok":[[:space:]]*false' selftest.json 2>/dev/null; then break; fi
-            echo "attempt $attempt: HTTP $code — waiting for the new version to go live"
+            if [ "$code" = "200" ] && healthy; then
+              echo "--- /selftest -> 200 ---"
+              cat selftest.json
+              echo
+              echo "deployed worker renders, and every guard still throws."
+              exit 0
+            fi
+            # A self-reported failure is a verdict, not a propagation delay.
+            if grep -qE '"ok":[[:space:]]*false' selftest.json 2>/dev/null; then
+              echo "--- /selftest -> $code (worker reports failure) ---"
+              cat selftest.json
+              echo
+              echo "::error::the deployed worker failed its self-test — it answered and judged itself failed."
+              exit 1
+            fi
+            echo "attempt $attempt: HTTP $code — $(head -c 160 selftest.json 2>/dev/null)"
             sleep 5
           done
-          echo "--- GET /selftest -> $code ---"
+          echo "--- /selftest -> $code after 8 attempts ---"
           cat selftest.json 2>/dev/null || echo "(no body)"
           echo
-          if [ "$code" != "200" ]; then
-            echo "::error::the deployed worker failed its self-test (HTTP $code). The deploy succeeded but the running code cannot render mail."
-            exit 1
-          fi
-          echo "deployed worker renders, and every guard still throws."
+          echo "::error::the deployed worker failed its self-test (HTTP $code). The deploy reported success but the running code is not serving correctly."
+          exit 1
