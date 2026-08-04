@@ -6,7 +6,7 @@
 // failure this split exists to prevent.
 
 import { LAYOUT } from './layout.html.js';
-import { renderMarkdownBody, esc, MarkdownError } from './markdown.js';
+import { renderMarkdownBody, esc, escWithMailto, MarkdownError } from './markdown.js';
 
 export { MarkdownError };
 
@@ -35,7 +35,7 @@ function footerHtml(brand) {
     ? `&nbsp;·&nbsp; <a href="${esc(brand.unsubscribeUrl)}" class="link" style="color:#5b636e;text-decoration:underline;">Unsubscribe</a>`
     : '';
   return `<div class="muted" style="font-size:13px;line-height:1.65;color:#5b636e;">
-        ${esc(brand.footerNotice)}
+        ${escWithMailto(brand.footerNotice)}
       </div>
       <div class="muted" style="font-size:13px;line-height:1.65;color:#5b636e;padding-top:12px;">
         ${esc(brand.footerPostal)}${link}
