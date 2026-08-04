@@ -17,6 +17,7 @@
 //
 // JSDoc rather than TypeScript: this Worker is plain ESM with `node --test`,
 // and a TS toolchain for one module is not worth the build step.
+import { escWithMailto } from './markdown.js';
 
 /** @typedef {'ok'|'warn'|'bad'|'neutral'} Status */
 /** @typedef {{ label: string, status: Status }} Pill */
@@ -358,7 +359,7 @@ ${body}
        up with the body copy above instead of running to the bleed edge. -->
   <tr><td class="foot-pad" style="padding:22px 37px 0 37px;">
     <div class="muted" style="font-size:13px;line-height:1.65;color:${T.muted};">
-      ${esc(brand.footerNotice)}
+      ${escWithMailto(brand.footerNotice, T.muted)}
     </div>
     <div class="muted" style="font-size:13px;line-height:1.65;color:${T.muted};padding-top:12px;">
       ${esc(brand.footerLegal)}${brand.unsubscribeUrl

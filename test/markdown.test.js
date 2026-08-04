@@ -194,10 +194,33 @@ test('the brand footer reaches the output, not just the template', async () => {
     unsubscribeUrl: 'https://uploadwizard.app/unsub',
   };
   const html = renderEmail({ ...FIXTURE, brand }).html;
-  assert.ok(html.includes('Sent by UploadWizard from noreply@uploadwizard.app.'),
+  // The address is now wrapped in an explicit mailto (see escWithMailto), so the
+  // sentence is asserted around it rather than verbatim.
+  assert.ok(html.includes('Sent by UploadWizard from '),
     'the brand footerNotice never reached the output');
+  assert.ok(html.includes('href="mailto:noreply@uploadwizard.app"'),
+    'the from-address should carry an explicit mailto');
   assert.ok(!html.includes('Sent by ops from'), 'a hardcoded footer is back in the layout');
   assert.ok(html.includes(brand.footerPostal), 'CAN-SPAM postal address missing');
   assert.ok(html.includes('https://uploadwizard.app/unsub'),
     'unsubscribeUrl is set but no link rendered');
+});
+
+test('footer addresses are linked by us, not by the mail client', async () => {
+  // Client auto-linkers have TLD lists old enough to know .us but not .app —
+  // identical templates rendered with a mailto on textwizard.us and none on
+  // resizewizard.app. Emitting the anchor ourselves is what makes it
+  // deterministic, so assert BOTH TLD generations get one.
+  const { escWithMailto } = await import('../src/markdown.js');
+  for (const addr of ['noreply@textwizard.us', 'noreply@resizewizard.app']) {
+    const out = escWithMailto(`Sent by X from ${addr}. Add that address.`);
+    assert.ok(out.includes(`href="mailto:${addr}"`), `${addr} not linked`);
+    assert.ok(out.includes(`>${addr}</a>`), `${addr} link text mangled`);
+  }
+  // Escaping still happens, and happens FIRST.
+  const hostile = escWithMailto('<b>x</b> mail a@b.us now');
+  assert.ok(hostile.includes('&lt;b&gt;'), 'escaping lost');
+  assert.ok(hostile.includes('href="mailto:a@b.us"'));
+  // A dark-mode-aware class rides along so the link is not client-default blue.
+  assert.ok(escWithMailto('a@b.app').includes('class="link"'));
 });

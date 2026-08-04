@@ -44,6 +44,21 @@ const IGNORED = new Set([
 
 export class MarkdownError extends Error {}
 
+// Footer notices name the sending address in prose. Whether that address became
+// a link used to depend on the READER'S mail client: auto-linkers wrap addresses
+// at display time, and their TLD lists are often old enough to know .us but not
+// .app — so textwizard.us got a mailto and resizewizard.app did not, from
+// byte-identical templates. Emitting the anchor ourselves makes it deterministic
+// (clients do not double-link an existing anchor) and keeps it under the .link
+// dark-mode styling instead of the client's default blue.
+const EMAIL_IN_TEXT = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+export function escWithMailto(s, color = '#5b636e') {
+  // Escape FIRST. An address contains none of the five HTML-significant
+  // characters, so escaping cannot corrupt the match.
+  return esc(s).replace(EMAIL_IN_TEXT, (addr) =>
+    `<a href="mailto:${addr}" class="link" style="color:${color};text-decoration:underline;">${addr}</a>`);
+}
+
 export function esc(s) {
   return String(s ?? '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
