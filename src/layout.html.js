@@ -68,13 +68,7 @@ export const LAYOUT = String.raw`<!DOCTYPE html>
 <table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:640px;border-collapse:separate;border-spacing:0;">
 
   
-  <tr><td style="padding:0 4px 18px 4px;">
-    <img src="{{LOGO_URL}}" width="26" height="26" alt=""
-         style="width:26px;height:26px;border-radius:6px;vertical-align:middle;">
-    <span class="mono ink" style="font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;font-weight:700;letter-spacing:-.2px;color:#14161a;vertical-align:middle;padding-left:9px;">
-      {{BRAND_NAME}}<span style="color:{{ACCENT}};">.</span>
-    </span>
-  </td></tr>
+{{HEADER}}
 
   <tr><td bgcolor="#ffffff" class="card" style="background:#ffffff;border-radius:16px;border:1px solid #dfe3e8;padding:40px 36px;">
 

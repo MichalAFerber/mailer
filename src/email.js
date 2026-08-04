@@ -12,12 +12,31 @@ export { MarkdownError };
 
 /**
  * @typedef {{name:string,logoUrl:string,accent:string,footerNotice:string,
- *            footerPostal:string,unsubscribeUrl?:string}} Brand
+ *            footerPostal:string,unsubscribeUrl?:string,internal?:boolean}} Brand
  * @typedef {{brand:Brand,subject:string,preheader:string,markdown:string,
  *            signoff?:string,eyebrow?:string}} Message
  */
 
 const MONO_S = "'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace";
+
+
+// The logomark row, or nothing for internal mail. Internal senders (the ops
+// product) mail one person: the operator. The logomark, the add-to-contacts
+// notice and the CAN-SPAM postal address all exist for external recipients —
+// CAN-SPAM governs commercial mail to others, not notes to yourself — so
+// internal mail drops them and leads with the content (spec exemption, owner
+// decision 2026-08-04).
+const HEADER_ROW = `  <tr><td style="padding:0 4px 18px 4px;">
+    <img src="{{LOGO_URL}}" width="26" height="26" alt=""
+         style="width:26px;height:26px;border-radius:6px;vertical-align:middle;">
+    <span class="mono ink" style="font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;font-weight:700;letter-spacing:-.2px;color:#14161a;vertical-align:middle;padding-left:9px;">
+      {{BRAND_NAME}}<span style="color:{{ACCENT}};">.</span>
+    </span>
+  </td></tr>`;
+
+function headerHtml(brand) {
+  return brand.internal ? '' : HEADER_ROW;
+}
 
 function footerHtml(brand) {
   // The layout carries no unsubscribe link by default, and the worker sends no
@@ -31,6 +50,7 @@ function footerHtml(brand) {
   // A product that sends anything recurring and non-transactional sets
   // unsubscribeUrl, and the link appears. The layout does not decide; the brand
   // config does.
+  if (brand.internal) return '';
   const link = brand.unsubscribeUrl
     ? `&nbsp;·&nbsp; <a href="${esc(brand.unsubscribeUrl)}" class="link" style="color:#5b636e;text-decoration:underline;">Unsubscribe</a>`
     : '';
@@ -54,6 +74,7 @@ export function renderEmail(msg) {
   if (msg.signoff) body += `\n\n    ${signoffHtml(msg.signoff)}`;
 
   const html = LAYOUT
+    .replace('{{HEADER}}', () => headerHtml(brand))
     .replace('{{BODY}}', () => body)          // function form: no $& / $1 expansion
     .replace(/\{\{SUBJECT\}\}/g, () => esc(msg.subject))
     .replace(/\{\{PREHEADER\}\}/g, () => esc(msg.preheader))
@@ -104,5 +125,6 @@ export function renderText(msg) {
     if (cur) out.push(cur);
   }
   const tail = msg.signoff ? `\n\n${msg.signoff}` : '';
-  return `${msg.preheader}\n\n${out.join('\n').trim()}${tail}\n\n${msg.brand.footerNotice}\n${msg.brand.footerPostal}\n`;
+  const foot = msg.brand.internal ? '' : `\n\n${msg.brand.footerNotice}\n${msg.brand.footerPostal}`;
+  return `${msg.preheader}\n\n${out.join('\n').trim()}${tail}${foot}\n`;
 }

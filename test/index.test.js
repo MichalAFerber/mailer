@@ -125,7 +125,11 @@ test('GOLDEN: contact email matches the §6 house format byte-for-byte', async (
   assert.ok(/class="mono-blk[^"]*"[^>]*white-space:pre-wrap/.test(mail.html),
     'the §6 block must ride in the mono block — the one legitimate pre-wrap');
   assert.ok(!/white-space:pre;/.test(mail.html), 'the old bare pre div should be gone');
-  assert.ok(mail.html.includes('New contact form message'));
+  // Heading, prose and eyebrow removed (owner decision 2026-08-04): the subject
+  // already says <SITE>⎯<SUBJECT>, so the message opens at the §6 block.
+  assert.ok(!mail.html.includes('New contact form message'), 'the trimmed heading is back');
+  assert.ok(!mail.html.includes('Reply to this email to answer directly'), 'the trimmed prose is back');
+  assert.ok(!mail.html.includes('Contact form</td>'), 'the trimmed eyebrow is back');
 });
 
 test('user values are HTML-escaped in the body', async () => {
