@@ -166,8 +166,15 @@ export default {
 // The brand the §9 markdown renderer takes. Distinct from brandOf() below, which
 // feeds the block renderer and calls the same field footerLegal — one helper for
 // both markdown callers, so the postal notice cannot drift between the two lanes.
-function mdBrand(product) {
+// Internal senders mail the operator, not customers. Kept in the worker rather
+// than as a KV field: `notifyctl sync-mailer` rebuilds the projection from D1
+// and silently drops fields it does not know, which is exactly how the ipcow
+// name drift survived so long.
+const INTERNAL_SLUGS = new Set(['ops']);
+
+function mdBrand(product, slug) {
   return {
+    internal: INTERNAL_SLUGS.has(slug),
     name: product.name,
     logoUrl: product.icon_url || `https://${product.domain}/icon-192.png`,
     accent: product.accent || '#a8322a',
@@ -195,9 +202,10 @@ function mdBrand(product) {
 // source IS the text/plain part (§10), so the text part matches the standard's
 // `text` block byte for byte.
 export function contactMarkdown({ name, email, message }) {
-  return '# New contact form message\n\n'
-    + 'Reply to this email to answer directly.\n\n'
-    + `${fenceBlock(`Name:\t${name}\nEmail:\t${email}\n\n${message}`)}\n`;
+  // No heading, no prose, no eyebrow (owner decision, 2026-08-04): the subject
+  // line already carries <SITE>⎯<SUBJECT>, so the message opens straight at the
+  // §6 block. §9 permits zero H1 — only a second one throws.
+  return `${fenceBlock(`Name:\t${name}\nEmail:\t${email}\n\n${message}`)}\n`;
 }
 
 // Wrap untrusted text in a fence longer than any backtick run inside it. A
@@ -270,7 +278,7 @@ async function handleSend(request, env, product, ctx, slug) {
   if (markdown) {
     try {
       rendered = renderMarkdownEmail({
-        brand: mdBrand(product),
+        brand: mdBrand(product, slug),
         subject,
         preheader: clean(b.preheader, LIMITS.subject) || subject,
         markdown,
@@ -365,11 +373,10 @@ async function handleContact(request, env, product, ctx, slug) {
   // registry contact_to (worst-case abuse is Turnstile-gated self-spam).
   const contactMd = contactMarkdown({ name, email, message });
   const rendered = renderMarkdownEmail({
-    brand: mdBrand(product),
+    brand: mdBrand(product, slug),
     subject: `${product.name}⎯${subject}`,
     preheader: `${name} via ${product.domain}`,
     markdown: contactMd,
-    eyebrow: 'Contact form',
   });
 
   const sent = await sendEmail(env, {

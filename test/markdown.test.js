@@ -224,3 +224,18 @@ test('footer addresses are linked by us, not by the mail client', async () => {
   // A dark-mode-aware class rides along so the link is not client-default blue.
   assert.ok(escWithMailto('a@b.app').includes('class="link"'));
 });
+
+test('internal brand drops the logomark and footer; external keeps both', async () => {
+  const { renderEmail } = await import('../src/email.js');
+  const { FIXTURE } = await import('../src/fixture.js');
+  const internal = renderEmail({ ...FIXTURE, brand: { ...FIXTURE.brand, internal: true } });
+  assert.ok(!internal.html.includes(FIXTURE.brand.logoUrl), 'internal mail still shows the logomark');
+  assert.ok(!internal.html.includes('Sent by'), 'internal mail still carries the footer notice');
+  assert.ok(!internal.html.includes('PO Box 3071'), 'internal mail still carries the postal address');
+  assert.ok(!internal.text.includes('PO Box 3071'), 'internal text part still carries the postal address');
+  assert.equal((internal.html.match(/\{\{[A-Z_]+\}\}/g) || []).length, 0, 'unreplaced token');
+
+  const external = renderEmail(FIXTURE);
+  assert.ok(external.html.includes(FIXTURE.brand.logoUrl), 'external mail lost its logomark');
+  assert.ok(external.html.includes('PO Box 3071'), 'external mail lost its postal address');
+});
