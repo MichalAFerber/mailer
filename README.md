@@ -26,6 +26,20 @@ Per-product configuration lives in the `PRODUCTS` KV namespace, projected from
 the herald registry (D1) by `notifyctl sync-mailer`: name, domain, from
 address, contact recipient, allowed origins, and optionally a per-product send
 token hash (`send_token_sha256`, which overrides the shared `SEND_TOKEN`).
+
+Because that projection is a whole-value `kv key put`, **KV is never the place to
+write a product field** — anything D1 cannot supply is dropped on the next sync.
+A per-product send token is therefore minted into the registry, not into KV:
+
+```bash
+notifyctl token mint send-<slug> --product <slug> --kind send   # D1: the source of truth
+notifyctl sync-mailer                                           # D1 -> KV projection
+# then set the printed token as MAILER_SEND_TOKEN on the consumer and restart it
+```
+
+`sync-mailer` picks the hash up from the token row named `send-<slug>`. Mint
+before syncing, and sync before updating the consumer: a consumer updated first
+holds a token the mailer cannot verify yet.
 Only public-safe fields are projected — the mailer deliberately has **no D1
 binding** and holds no webhook or platform credentials, keeping the public
 contact surface's blast radius minimal.
