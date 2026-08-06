@@ -20,14 +20,15 @@ on:
   # Pull requests run `test` and stop there. Without this, the first signal on a
   # change arrived only after it merged and was already deploying — which is how
   # the 2026-08-02 missing-import bug reached production unopposed.
+  #
+  # Deliberately NOT paths-filtered, unlike push. `ci` is a required status check
+  # on main, and a required check that does not run is not a skipped check — it is
+  # a permanently blocked pull request. With a filter here, any PR touching only
+  # scripts/, README.md, or anything else unlisted could never merge, because the
+  # context the ruleset waits for would never report at all. The filter belongs on
+  # push, where it decides whether to DEPLOY; the gate has to run every time.
   pull_request:
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'test/**'
-      - 'wrangler.toml'
-      - 'package.json'
-      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 concurrency:
