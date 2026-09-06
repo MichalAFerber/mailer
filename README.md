@@ -11,13 +11,16 @@ One tiny Cloudflare Worker, zero runtime dependencies, two jobs:
   hosts, no credentials, no MIME assembly. Delivery via the ForwardEmail REST
   API with a 3-attempt retry.
 - **`POST /contact/:product`** — the shared contact-form endpoint every site
-  uses instead of rebuilding its own. Public, but gated by **server-side
-  Cloudflare Turnstile** verification and a per-product **Origin allowlist**;
+  uses instead of rebuilding its own. Public, but gated by a per-product
+  **Origin allowlist first**, then **server-side Cloudflare Turnstile**;
   the recipient is hard-fixed to the product's registered `contact_to`, so the
   worst-case abuse is Turnstile-gated self-spam. Emits the house contact
   format (TGWAB DEV-STANDARDS §6) byte for byte — From = site name, Reply-To =
   submitter, Subject `<SITE>⎯<SUBJECT>`, `white-space:pre` body — enforced by
-  golden tests.
+  golden tests. A product's own `/api/contact` (for example
+  `https://ipcow.com/api/contact`) is a **different surface**: it may check
+  Turnstile locally and call `POST /send/:product` with a send token. Probing
+  that URL cannot settle whether this Worker's allowlist runs.
 - `GET /health`.
 
 ## How it works
