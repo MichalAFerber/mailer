@@ -353,8 +353,10 @@ async function handleContact(request, env, product, ctx, slug) {
     return json({ error: 'bad payload: ' + e.message, code: 'bad_payload' }, 400, origin);
   }
 
-  // Turnstile FIRST (§7): no verification, no send — and the check is
-  // server-side against siteverify, never trusted from the client.
+  // Origin allowlist first, then Turnstile. A denied origin must not reach
+  // siteverify — otherwise a black-box probe with a bad token cannot tell
+  // origin_denied from turnstile_failed (mailer#27). Turnstile is still
+  // server-side against siteverify, never trusted from the client (§7).
   const turnstileToken = b.turnstileToken || b['cf-turnstile-response'];
   if (!(await turnstileOk(env, turnstileToken, request, product))) {
     return json({ error: 'turnstile verification failed', code: 'turnstile_failed' }, 403, origin);

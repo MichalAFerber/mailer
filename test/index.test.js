@@ -223,9 +223,28 @@ test('failed Turnstile verification -> 403, no email sent', async () => {
 test('disallowed origin -> 403 origin_denied before Turnstile is even called', async () => {
   const res = await contact(VALID, { origin: 'https://evil.example' });
   assert.equal(res.status, 403);
-  assert.equal((await res.json()).code, 'origin_denied');
+  const body = await res.json();
+  assert.equal(body.code, 'origin_denied');
+  assert.equal(body.error, 'origin not allowed');
   assert.equal(turnstileCalls.length, 0);
   assert.equal(emailCalls.length, 0);
+});
+
+test('allowed origin + failed Turnstile is turnstile_failed, not origin_denied', async () => {
+  // mailer#27: a black-box probe that sends a bad token on both an allowed and
+  // a denied Origin cannot distinguish the two gates if they share a body.
+  // These two codes and error strings MUST stay distinct.
+  turnstileSuccess = false;
+  const allowed = await contact(VALID);
+  const denied = await contact(VALID, { origin: 'https://evil.example' });
+  const a = await allowed.json();
+  const d = await denied.json();
+  assert.equal(allowed.status, 403);
+  assert.equal(denied.status, 403);
+  assert.equal(a.code, 'turnstile_failed');
+  assert.equal(d.code, 'origin_denied');
+  assert.notEqual(a.error, d.error);
+  assert.equal(d.error, 'origin not allowed');
 });
 
 test('missing origin header -> 403 (forms only live on allowlisted sites)', async () => {
