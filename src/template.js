@@ -22,7 +22,7 @@ import { escWithMailto } from './markdown.js';
 /** @typedef {'ok'|'warn'|'bad'|'neutral'} Status */
 /** @typedef {{ label: string, status: Status }} Pill */
 /** @typedef {{ label: string, value: string }} Stat */
-/** @typedef {string | { text: string, pill?: Pill, meta?: string }} Cell */
+/** @typedef {string | { text: string, href?: string, pill?: Pill, meta?: string }} Cell */
 
 /**
  * @typedef {{ name: string, logoUrl: string, accent: string,
@@ -184,11 +184,14 @@ const blockTable = (b) => {
         const inner = o.pill
           ? `${pillHtml(o.pill)}${o.meta ? `<div class="muted hide-sm" style="font-size:12px;color:${T.muted};padding-top:4px;">${esc(o.meta)}</div>` : ''}`
           : esc(o.text);
+        const innerLinked = o.href
+          ? `<a href="${safeHref(o.href)}" style="color:inherit;text-decoration:underline;">${inner}</a>`
+          : inner;
         const style = o.pill
           ? `padding:11px 10px;border-bottom:1px solid ${T.rule};`
           : `font-family:${MONO_S};font-size:13px;color:${i ? T.muted : T.ink};padding:11px 10px;border-bottom:1px solid ${T.rule};word-break:break-word;`;
         return `
-        <td class="cell${o.pill ? '' : ` mono ${i ? 'muted' : 'ink'}`}"${align}${w(i)} style="${style}">${inner}</td>`;
+        <td class="cell${o.pill ? '' : ` mono ${i ? 'muted' : 'ink'}`}"${align}${w(i)} style="${style}">${innerLinked}</td>`;
       }).join('')}
       </tr>`).join('');
   return `
@@ -432,7 +435,8 @@ export function renderText(doc) {
         const cols = b.columns.slice(0, 3);
         const cellText = (c) => {
           const o = typeof c === 'string' ? { text: c } : c;
-          return o.pill ? `${o.text ? `${o.text} ` : ''}[${o.pill.label.toUpperCase()}]` : o.text;
+          const base = o.pill ? `${o.text ? `${o.text} ` : ''}[${o.pill.label.toUpperCase()}]` : o.text;
+          return o.href ? `${base} — ${o.href}` : base;
         };
         const rows = b.rows.map((r) => r.slice(0, 3).map(cellText));
         const w = cols.map((c, i) => Math.max(c.length, ...rows.map((r) => (r[i] || '').length)));

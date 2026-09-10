@@ -129,6 +129,50 @@ test('data tables cap at three columns', () => {
   assert.equal(headerCells, 3, 'a fourth column was rendered');
 });
 
+test('a table cell with no href renders byte-identically to before the href feature existed', () => {
+  const withoutHrefField = { type: 'table', columns: ['File', 'Disposition'], rows: [['073026 WellsFargo.pdf', { text: 'filed', pill: { label: 'filed', status: 'ok' }, meta: 'Financial' }]] };
+  const explicitUndefinedHref = { type: 'table', columns: ['File', 'Disposition'], rows: [['073026 WellsFargo.pdf', { text: 'filed', href: undefined, pill: { label: 'filed', status: 'ok' }, meta: 'Financial' }]] };
+  const a = renderEmail({ ...doc(), blocks: [withoutHrefField] });
+  const b = renderEmail({ ...doc(), blocks: [explicitUndefinedHref] });
+  assert.equal(a.html, b.html, 'an absent href changed the HTML output');
+  assert.equal(a.text, b.text, 'an absent href changed the text output');
+});
+
+test('a table with no hrefs at all never grows an anchor', () => {
+  const d = { brand, subject: 's', preheader: 'p', blocks: [{ type: 'table', columns: ['File', 'Disposition'], rows: [['a.pdf', { text: 'filed', pill: { label: 'filed', status: 'ok' } }], ['b.pdf', 'plain']] }] };
+  const { html } = renderEmail(d);
+  // brand.unsubscribeUrl legitimately renders its own <a> in the footer; scope
+  // the assertion to cells wrapping the table's own text, not the whole document.
+  const cellAnchors = [...html.matchAll(/<a href="[^"]*"[^>]*>(filed|plain)<\/a>/g)];
+  assert.equal(cellAnchors.length, 0, 'an hrefless table cell grew an anchor');
+});
+
+test('a table cell href renders as a real link, sanitized through safeHref', () => {
+  const d = { ...doc(), blocks: [{ type: 'table', columns: ['File', 'Link'], rows: [['report.pdf', { text: 'Download', href: 'https://wasabi.example.test/report.pdf?sig=abc' }]] }] };
+  const { html, text } = renderEmail(d);
+  assert.match(html, /<a href="https:\/\/wasabi\.example\.test\/report\.pdf\?sig=abc"[^>]*>Download<\/a>/, 'https href did not render as an anchor');
+  assert.match(text, /Download — https:\/\/wasabi\.example\.test\/report\.pdf\?sig=abc/, 'text lane did not append the href, per the button-lane convention');
+});
+
+test('a non-https table cell href is dropped by safeHref, exactly as it is for links/button blocks', () => {
+  const d = {
+    ...doc(),
+    blocks: [{
+      type: 'table',
+      columns: ['File', 'Link'],
+      rows: [
+        ['a.pdf', { text: 'A', href: 'javascript:alert(1)' }],
+        ['b.pdf', { text: 'B', href: 'http://insecure.example.test/x' }],
+      ],
+    }],
+  };
+  const { html } = renderEmail(d);
+  assert.ok(!html.includes('javascript:'), 'a javascript: href survived into the output');
+  assert.ok(!html.includes('http://insecure.example.test'), 'an http: href survived into the output');
+  assert.match(html, /<a href="#"[^>]*>A<\/a>/, 'javascript: href did not fall back to #, as safeHref does elsewhere');
+  assert.match(html, /<a href="#"[^>]*>B<\/a>/, 'http: href did not fall back to #, as safeHref does elsewhere');
+});
+
 test('applies per-column widths to header and body cells alike', () => {
   const d = {
     brand, subject: 's', preheader: 'p',
