@@ -106,9 +106,36 @@ export default {
           fence_held: cm.html.includes('| a | b | c | d |') && cm.html.includes('```'),
           no_img: !/<img[^>]+evil\.test/i.test(cm.html),
         };
+        // The `blocks` lane's table cell `href` (mailer#36 Fix A): a cell with
+        // no href must be untouched, an https href must render as a real link,
+        // and anything else must fall back through safeHref exactly as the
+        // links/button blocks already do.
+        const th = renderBlocks({
+          brand: FIXTURE.brand, subject: FIXTURE.subject, preheader: FIXTURE.preheader,
+          blocks: [{
+            type: 'table',
+            columns: ['File', 'Link'],
+            rows: [
+              ['no-href.pdf', 'plain'],
+              ['safe.pdf', { text: 'Download', href: 'https://good.test/f' }],
+              ['bad.pdf', { text: 'Download', href: 'javascript:alert(1)' }],
+            ],
+          }],
+        });
+        const thAnchors = [...th.html.matchAll(/<a href="([^"]*)"[^>]*>([^<]*)<\/a>/g)]
+          .map(([, href, label]) => ({ href, label }));
+        report.table_href = {
+          hrefless_cell_has_no_anchor: !thAnchors.some((a) => a.label === 'plain'),
+          https_href_survives: thAnchors.some((a) => a.label === 'Download' && a.href === 'https://good.test/f'),
+          // safeHref's fallback, not a stripped attribute: the anchor still
+          // renders, it just points at '#' — matching links/button today.
+          javascript_href_falls_back_to_hash: thAnchors.some((a) => a.label === 'Download' && a.href === '#'),
+          javascript_scheme_absent: !th.html.includes('javascript:'),
+        };
         report.ok = Boolean(report.render)
           && Object.values(report.guards).every((v) => v === 'throws')
-          && Object.values(report.contact).every(Boolean);
+          && Object.values(report.contact).every(Boolean)
+          && Object.values(report.table_href).every(Boolean);
       } catch (e) {
         report.error = `${e?.name}: ${e?.message}`;
       }
