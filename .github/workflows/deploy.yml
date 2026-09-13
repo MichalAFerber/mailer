@@ -127,8 +127,12 @@ jobs:
           # liveness, and then failed an assertion about content that version never
           # claimed to serve. The retry condition and the pass condition must be the
           # same condition.
+          # The brand-override guards report `available: false` in a runtime with no
+          # HTMLRewriter, and that verdict does not fail `ok` (Node has none). The
+          # deployed worker must have one, so here it has to say so.
           healthy() {
-              grep -q '"ok":[[:space:]]*true' selftest.json
+              grep -q '"ok":[[:space:]]*true' selftest.json && \
+              grep -q '"brand_override":[[:space:]]*{"available":[[:space:]]*true' selftest.json
           }
           for attempt in 1 2 3 4 5 6 7 8; do
             # curl's own %{http_code} is 000 when the connection fails; `|| true`
