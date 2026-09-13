@@ -68,7 +68,7 @@ send its own fully assembled document instead of the house layout:
   every `on*` attribute is stripped; `href`, `src`, each `srcset` candidate,
   `action`, `formaction`, `background`, `poster`, `data`, and `xlink:href` keep
   only absolute `https://` values.
-- The sanitized `html` and the `text` are each capped at 40,000 bytes. Over the
+- The sanitized `html` and the `text` are each capped at 90,000 bytes. Over the
   cap is rejected, never truncated.
 - From, Reply-To, CRLF cleaning, the one-recipient rule, and `/contact` are
   unchanged. `GET /selftest` reruns every sanitizer fixture on the deployed

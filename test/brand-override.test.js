@@ -174,14 +174,18 @@ test('gate: subject is still required', async () => {
 
 // ── size caps ──────────────────────────────────────────────────────────────
 
-test('cap: sanitized html over 40,000 bytes is rejected, not truncated', async () => {
+test('cap: the shipped limits are 90,000 bytes for html and text', () => {
+  assert.deepEqual(BRAND_OVERRIDE_LIMITS, { html_bytes: 90000, text_bytes: 90000 });
+});
+
+test('cap: sanitized html over 90,000 bytes is rejected, not truncated', async () => {
   const html = `<p>${'a'.repeat(BRAND_OVERRIDE_LIMITS.html_bytes)}</p>`;
-  await expect400(await send({ subject: 'Hi', brand_override: override({ html }) }), /exceeds 40000 bytes after sanitizing/);
+  await expect400(await send({ subject: 'Hi', brand_override: override({ html }) }), /exceeds 90000 bytes after sanitizing/);
 });
 
 test('cap: the limit is measured in bytes, not characters', async () => {
-  // 13,334 three-byte characters are 40,002 bytes but only 13,334 characters.
-  const html = '€'.repeat(13334);
+  // 30,001 three-byte characters are 90,003 bytes but only 30,001 characters.
+  const html = '€'.repeat(30001);
   assert.ok(html.length < BRAND_OVERRIDE_LIMITS.html_bytes);
   await expect400(await send({ subject: 'Hi', brand_override: override({ html }) }), /exceeds/);
 });
@@ -193,13 +197,13 @@ test('cap: applies to the output, so input that shrinks under it is accepted', a
   assert.equal(emailCalls[0].html, '<p>kept</p>');
 });
 
-test('cap: exactly 40,000 bytes of output is accepted', async () => {
+test('cap: exactly 90,000 bytes of output is accepted', async () => {
   const html = `<p>${'a'.repeat(BRAND_OVERRIDE_LIMITS.html_bytes - 7)}</p>`;
   assert.equal(new TextEncoder().encode(html).length, BRAND_OVERRIDE_LIMITS.html_bytes);
   assert.equal((await send({ subject: 'Hi', brand_override: override({ html }) })).status, 200);
 });
 
-test('cap: text over 40,000 bytes is rejected', async () => {
+test('cap: text over 90,000 bytes is rejected', async () => {
   await expect400(
     await send({ subject: 'Hi', brand_override: override({ text: 'a'.repeat(BRAND_OVERRIDE_LIMITS.text_bytes + 1) }) }),
     /text exceeds/,

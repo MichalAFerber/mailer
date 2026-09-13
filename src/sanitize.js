@@ -9,9 +9,11 @@
 
 // Measured in UTF-8 bytes. The HTML cap applies to the SANITIZED output, and an
 // oversized document is rejected rather than truncated: truncated HTML is a
-// malformed document. 40,000 is double uploadwizard-app's 20,000-character admin
-// cap, which leaves room for the link and code interpolation the app does first.
-export const BRAND_OVERRIDE_LIMITS = { html_bytes: 40000, text_bytes: 40000 };
+// malformed document. 90,000 bytes fits uploadwizard-app's confirmation email,
+// whose file list carries a presigned URL of about 614 bytes per file (at 40,000
+// it failed from 46 files, where SMTP had delivered), and stays under the ~102KB
+// point where Gmail clips a message.
+export const BRAND_OVERRIDE_LIMITS = { html_bytes: 90000, text_bytes: 90000 };
 
 const ALLOWED_KEYS = new Set(['html', 'text', 'suppress_platform_wrapper']);
 
