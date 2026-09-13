@@ -30,7 +30,10 @@ import { FIXTURE } from './fixture.js';
 
 // `blocks` is capped so one caller cannot post an unbounded document; the
 // renderer additionally budgets the rendered size against Gmail's clip point.
-const LIMITS = { name: 100, email: 254, subject: 150, message: 5000, blocks: 200, markdown: 40000 };
+// `sendSubject` is the /send subject alone: tenant subject templates allow 300
+// characters (uploadwizard-app#95). `subject` still caps /contact, preheaders,
+// and signoffs. Both clamp; neither rejects.
+const LIMITS = { name: 100, email: 254, subject: 150, sendSubject: 300, message: 5000, blocks: 200, markdown: 40000 };
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default {
@@ -281,7 +284,7 @@ async function handleSend(request, env, product, ctx, slug) {
   } catch (e) {
     return json({ error: 'bad payload: ' + e.message, code: 'bad_payload' }, 400);
   }
-  const subject = clean(b.subject, LIMITS.subject);
+  const subject = clean(b.subject, LIMITS.sendSubject);
   const message = String(b.message ?? '').slice(0, LIMITS.message);
   // `blocks` is the structured lane: callers that pass it get the full template
   // (stat rows, data tables, status pills). Callers that pass `message` keep the
@@ -344,10 +347,11 @@ async function handleSend(request, env, product, ctx, slug) {
           preheader: subject,
           body: reportHtml(message),
         }),
-    // A text/plain alternative ships with every block-rendered message: a missing
-    // text part hurts deliverability and makes the mail unreadable in text-only
-    // clients and most watch notifications.
-    text: rendered ? rendered.text : undefined,
+    // A text/plain alternative ships with every message: a missing text part hurts
+    // deliverability and makes the mail unreadable in text-only clients and most
+    // watch notifications. The message lane's body is already plain text, so it
+    // is its own text part.
+    text: rendered ? rendered.text : message,
     unsubscribe: product.unsubscribe_url,
     slug,
     lane: 'send',
