@@ -15,8 +15,9 @@
 //
 // Per-product config comes from the PRODUCTS KV projection (written by
 // `notifyctl sync-mailer` from the herald registry): {name, domain, from_addr,
-// contact_to, allowed_origins, turnstile_ref?, send_token_sha256?, icon_url?}.
-// Renderers live here in tested code; only per-product data varies.
+// contact_to, allowed_origins, turnstile_ref?, send_token_sha256?, icon_url?,
+// white_label?, transactional_only?}. Renderers live here in tested code; only
+// per-product data varies.
 //
 // `turnstile_ref` NAMES a worker secret (never a value). A Turnstile widget
 // caps at 10 domains, so a single shared secret would also cap the platform at
@@ -27,6 +28,7 @@ import { renderEmail as renderBlocks } from './template.js';
 import { renderEmail as renderMarkdownEmail, MarkdownError } from './email.js';
 import { iconBytes } from './icon.js';
 import { FIXTURE } from './fixture.js';
+import { prepareBrandOverride, selftestBrandOverride } from './sanitize.js';
 
 // `blocks` is capped so one caller cannot post an unbounded document; the
 // renderer additionally budgets the rendered size against Gmail's clip point.
@@ -135,10 +137,17 @@ export default {
           javascript_href_falls_back_to_hash: thAnchors.some((a) => a.label === 'Download' && a.href === '#'),
           javascript_scheme_absent: !th.html.includes('javascript:'),
         };
+        // The brand-override sanitizer (mailer#36 Fix B), on the HTMLRewriter this
+        // runtime actually ships. Node tests run a WebAssembly build of the same
+        // parser at a different version, so only this proves the deployed parser
+        // strips what the tests say it strips. `available: false` means the runtime
+        // has no HTMLRewriter at all; the deploy smoke test refuses that verdict.
+        report.brand_override = await selftestBrandOverride();
         report.ok = Boolean(report.render)
           && Object.values(report.guards).every((v) => v === 'throws')
           && Object.values(report.contact).every(Boolean)
-          && Object.values(report.table_href).every(Boolean);
+          && Object.values(report.table_href).every(Boolean)
+          && (!report.brand_override.available || report.brand_override.ok);
       } catch (e) {
         report.error = `${e?.name}: ${e?.message}`;
       }
@@ -294,7 +303,8 @@ async function handleSend(request, env, product, ctx, slug) {
   // the mailer parses it to an AST and emits components. It is preferred over
   // `blocks`, which stays for callers already on it.
   const markdown = typeof b.markdown === 'string' ? b.markdown.slice(0, LIMITS.markdown) : null;
-  if (!subject || (!message && !blocks && !markdown)) {
+  const hasOverride = b.brand_override !== undefined;
+  if (!subject || (!message && !blocks && !markdown && !hasOverride)) {
     return json({ error: 'subject and one of message, markdown or blocks are required', code: 'bad_payload' }, 400);
   }
   const to = clean(b.to, LIMITS.email) || product.contact_to;
@@ -305,6 +315,18 @@ async function handleSend(request, env, product, ctx, slug) {
   const fromName = clean(b.name, LIMITS.name) || product.name;
 
   let rendered = null;
+  // The brand-override lane (mailer#36 Fix B): a white-label product's own
+  // document, sanitized, in place of the house layout. Everything above this
+  // point (auth, subject, recipient, Reply-To, From) is shared with every lane
+  // and unchanged; this decides the body only.
+  if (hasOverride) {
+    if (message || blocks || markdown) {
+      return json({ error: 'brand_override cannot be combined with message, markdown or blocks', code: 'bad_payload' }, 400);
+    }
+    const prepared = await prepareBrandOverride(product, b.brand_override);
+    if (prepared.error) return json({ error: prepared.error, code: 'bad_payload' }, 400);
+    rendered = prepared;
+  }
   if (markdown) {
     try {
       rendered = renderMarkdownEmail({
