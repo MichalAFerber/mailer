@@ -167,8 +167,10 @@ const blockLinks = (b) => `
     </table>`;
 
 // Real <td> markup, never an ASCII grid in a pre-wrap block — that is what
-// makes a digest survive a 375px screen. Three columns max.
-const blockTable = (b) => {
+// makes a digest survive a 375px screen. Three columns max. `more` is set only by
+// renderEmail's budget cutoff: the count of rows it dropped from the end, shown
+// as one closing row so a trimmed table never reads as complete.
+const blockTable = (b, more = 0) => {
   const cols = b.columns.slice(0, 3);
   // Explicit widths keep every row's columns aligned. Without them each cell
   // sizes to its own content and the grid visibly wanders row to row — worse
@@ -198,9 +200,33 @@ const blockTable = (b) => {
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:${b.sublabel ? '20' : '12'}px;">
       ${b.sublabel ? `<tr><td class="label muted" colspan="${cols.length}" style="font-family:${MONO_S};font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:${T.muted};padding-bottom:8px;">${esc(b.sublabel)}</td></tr>` : ''}
       <tr>${head}
-      </tr>${body}
+      </tr>${body}${more ? `
+      <tr><td class="cell mono muted" colspan="${cols.length}" style="font-family:${MONO_S};font-size:13px;color:${T.muted};padding:11px 10px;border-bottom:1px solid ${T.rule};">+${more} more</td></tr>` : ''}
     </table>`;
 };
+
+// The largest leading run of a table's rows that fits `room`, closed by a
+// "+N more" row, or null when not even one row fits. Row length grows with the
+// row count, so a binary search finds it in a handful of renders; the result is
+// re-measured because the "+N more" digits make growth only near-monotonic.
+function fitTable(b, room) {
+  const rows = Array.isArray(b.rows) ? b.rows : [];
+  const render = (k) => blockTable({ ...b, rows: rows.slice(0, k) }, rows.length - k);
+  let lo = 1;
+  let hi = rows.length - 1;
+  let best = null;
+  while (lo <= hi) {
+    const k = (lo + hi) >> 1;
+    const chunk = render(k);
+    if (chunk.length <= room) {
+      best = chunk;
+      lo = k + 1;
+    } else {
+      hi = k - 1;
+    }
+  }
+  return best;
+}
 
 // Raw output only. Anything with rows and columns belongs in a DATA TABLE.
 // word-break stops long paths and datastore names blowing out the layout.
@@ -250,7 +276,13 @@ export function renderEmail(doc) {
   for (const b of doc.blocks) {
     const r = RENDERERS[b.type];
     if (!r) continue;
-    const chunk = r(b);
+    let chunk = r(b);
+    // A table over the budget keeps its first rows behind a "+N more" row rather
+    // than vanishing: at 72 files a forwarded-upload email used to lose every
+    // link to the notice below. Only a table with no room for even one row drops.
+    if (used + chunk.length > BODY_BUDGET && b.type === 'table') {
+      chunk = fitTable(b, BODY_BUDGET - used) ?? chunk;
+    }
     if (used + chunk.length > BODY_BUDGET) { dropped++; continue; }
     parts.push(chunk);
     used += chunk.length;
