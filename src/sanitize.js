@@ -15,8 +15,18 @@ export const BRAND_OVERRIDE_LIMITS = { html_bytes: 40000, text_bytes: 40000 };
 
 const ALLOWED_KEYS = new Set(['html', 'text', 'suppress_platform_wrapper']);
 
-// Dropped with their content.
-const DROP = new Set(['script', 'iframe', 'object', 'embed', 'form', 'base', 'link']);
+// Dropped with their content. The second row is mutation-XSS routes: a parser
+// reads their contents as markup with scripting disabled and as raw text with it
+// enabled, so a mail client's own sanitizer can disagree with this one about
+// what is inside. The third row is SVG animation, which can set an attribute
+// such as href at render time. lol-html reports SVG tag names lowercased
+// (`animateTransform` arrives as `animatetransform`), and the match below
+// lowercases anyway.
+const DROP = new Set([
+  'script', 'iframe', 'object', 'embed', 'form', 'base', 'link',
+  'noscript', 'noembed', 'noframes', 'template', 'xmp', 'plaintext',
+  'animate', 'set', 'animatemotion', 'animatetransform',
+]);
 
 const URL_ATTRS = new Set([
   'href', 'src', 'action', 'formaction', 'background', 'poster', 'data', 'xlink:href',
@@ -59,6 +69,8 @@ const sanitizer = {
       const name = rawName.toLowerCase();
       if (
         name.startsWith('on')
+        // A tracking beacon on click, whatever its scheme.
+        || name === 'ping'
         || (URL_ATTRS.has(name) && !HTTPS.test(value))
         || (name === 'srcset' && !srcsetAllowed(value))
       ) {
@@ -176,4 +188,22 @@ export const SANITIZER_FIXTURES = [
   { name: 'background', html: '<table><tr><td background="http://evil.test/bg.png">x</td></tr></table>', absent: /evil\.test/i, present: /<td>x<\/td>/ },
   { name: 'poster', html: '<video poster="javascript:steal()"></video><p>hi</p>', absent: /javascript:/i, present: /<p>hi<\/p>/ },
   { name: 'xlink_href', html: '<svg><a xlink:href="javascript:steal()"><text>go</text></a></svg>', absent: /javascript:/i, present: /<text>go<\/text>/ },
+  // Mutation XSS: these elements' contents are markup to one parser and raw text
+  // to another, depending on whether scripting is enabled. A webmail client's own
+  // sanitizer can read the payload in the attribute as a live element. The
+  // `onerror` half is already stripped by the on* rule, so the element's own tag
+  // is what proves the drop.
+  { name: 'noscript_mxss', html: '<p>hi</p><noscript><p title="</noscript><img src=x onerror=alert(1)>"></noscript>', absent: /<noscript|onerror/i, present: /<p>hi<\/p>/ },
+  { name: 'noembed_mxss', html: '<p>hi</p><NOEMBED><p title="</noembed><img src=x onerror=alert(1)>"></NOEMBED>', absent: /<noembed|onerror/i, present: /<p>hi<\/p>/ },
+  { name: 'noframes_mxss', html: '<p>hi</p><noframes><p title="</noframes><img src=x onerror=alert(1)>"></noframes>', absent: /<noframes|onerror/i, present: /<p>hi<\/p>/ },
+  { name: 'template', html: '<p>hi</p><template><img src="https://ok.test/i.png" onerror="alert(1)"></template>', absent: /<template|<img|onerror/i, present: /<p>hi<\/p>/ },
+  { name: 'xmp_mxss', html: '<p>hi</p><xmp><p title="</xmp><img src=x onerror=alert(1)>"></xmp>', absent: /<xmp|onerror/i, present: /<p>hi<\/p>/ },
+  { name: 'plaintext', html: '<p>hi</p><plaintext><img src=x onerror=alert(1)>', absent: /<plaintext|onerror/i, present: /<p>hi<\/p>/ },
+  // SVG animation can set an attribute at render time, after any static check.
+  { name: 'svg_animate', html: '<svg><a><animate attributeName="href" values="javascript:alert(1)"/><text>go</text></a></svg>', absent: /<animate|javascript:/i, present: /<text>go<\/text>/ },
+  { name: 'svg_set_uppercase', html: '<svg><a><SET attributeName="href" to="javascript:alert(1)"></SET><text>go</text></a></svg>', absent: /<set|javascript:/i, present: /<text>go<\/text>/ },
+  { name: 'svg_animatemotion', html: '<svg><animateMotion path="M0,0" dur="1s"/><text>go</text></svg>', absent: /<animatemotion/i, present: /<text>go<\/text>/ },
+  { name: 'svg_animatetransform', html: '<svg><a><animateTransform attributeName="href" to="javascript:alert(1)"/><text>go</text></a></svg>', absent: /<animatetransform|javascript:/i, present: /<text>go<\/text>/ },
+  { name: 'ping', html: '<a href="https://ok.test/p" ping="https://track.test/">go</a>', absent: /ping|track\.test/i, present: /href="https:\/\/ok\.test\/p"/ },
+  { name: 'ping_uppercase', html: '<A HREF="https://ok.test/p" PING="https://track.test/">go</A>', absent: /ping|track\.test/i, present: /https:\/\/ok\.test\/p/ },
 ];
