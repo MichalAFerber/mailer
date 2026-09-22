@@ -1,6 +1,3 @@
 .DS_Store
 .wrangler/
 node_modules/
-
-# Carries the CF account id + KV namespace id. Copy from wrangler.toml.example.
-wrangler.toml
