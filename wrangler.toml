@@ -1,16 +1,15 @@
-# Copy to wrangler.toml and fill in the two ids below. The real wrangler.toml is
-# gitignored: it carries a Cloudflare account id and a KV namespace id, which are
-# identifiers rather than credentials -- useless without a token -- but there is
-# no reason to publish the account layout of a public-facing worker.
+# The deployed config, committed 2026-09-22. The account id and KV namespace id
+# are identifiers, not credentials, and every sibling Worker commits both.
+# Secrets are set with `wrangler secret put` and never live here.
 name = "mailer"
 main = "src/index.js"
 compatibility_date = "2026-06-01"
-account_id = "YOUR_CLOUDFLARE_ACCOUNT_ID"
+account_id = "8a0d49b1f3fdcdadec135562ec8a4fdc"
 
 # Access apps and Turnstile guard hostnames; a workers.dev route would be an
 # unguarded second front door.
 workers_dev = false
-routes = [{ pattern = "mailer.example.com", custom_domain = true }]
+routes = [{ pattern = "mailer.thompsonblack.us", custom_domain = true }]
 
 # Low-volume Worker; full sampling costs little and keeps request logs for debugging /contact and /send.
 [observability]
@@ -24,11 +23,11 @@ head_sampling_rate = 1
 [vars]
 # Where the mailer reports its OWN send failures. It holds a `notify`-scoped
 # ingest token and nothing else.
-NOTIFY_URL = "https://notify.example.com"
+NOTIFY_URL = "https://notify.thompsonblack.us"
 
 [[kv_namespaces]]
 binding = "PRODUCTS"
-id = "YOUR_KV_NAMESPACE_ID"
+id = "4e28367a623542ae938ecb221adc7e3b"
 
 # Secrets -- set with `wrangler secret put <NAME>` (values live in a password
 # manager, never in this file):
