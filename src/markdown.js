@@ -1,9 +1,9 @@
 // Markdown in, template components out.
 //
 // Scripts author markdown. The mailer parses it to an AST and walks it, emitting
-// the components in tgwab-standards/templates/tgwab-email-layout.html. It never
+// the components in tgwab-standards/templates/tgwab-email-template.html. It never
 // pastes a markdown converter's HTML into the layout — that route produces
-// unclassed markup with no dark-mode counterpart and an injection surface, and
+// unclassed markup outside the component catalog and an injection surface, and
 // it is exactly how the 2026-08-02 Pages notification shipped unreadable.
 //
 // The markdown source IS the text/plain part, verbatim. That is the argument for
@@ -49,8 +49,8 @@ export class MarkdownError extends Error {}
 // at display time, and their TLD lists are often old enough to know .us but not
 // .app — so textwizard.us got a mailto and resizewizard.app did not, from
 // byte-identical templates. Emitting the anchor ourselves makes it deterministic
-// (clients do not double-link an existing anchor) and keeps it under the .link
-// dark-mode styling instead of the client's default blue.
+// (clients do not double-link an existing anchor) and keeps it in the footer's
+// own color instead of the client's default blue.
 const EMAIL_IN_TEXT = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 export function escWithMailto(s, color = '#5b636e') {
   // Escape FIRST. An address contains none of the five HTML-significant
@@ -227,8 +227,11 @@ export function renderMarkdownBody(source, opts = {}) {
     }
 
     // ── MONO BLOCK ──────────────────────────────────────────────────────
+    // Unboxed (owner decision 2026-09-25): no fill, border, or padding, so it
+    // never reads as a card inside the card. The top margin only separates it
+    // from the block above; as the first block (the contact lane) it takes none.
     if (t.type === 'fence' || t.type === 'code_block') {
-      out.push(`<div class="mono-blk wash" style="font-family:${MONO};font-size:12.5px;line-height:1.65;color:${T.ink};background:${T.wash};border:1px solid ${T.rule};border-radius:10px;padding:16px 18px;margin-top:18px;white-space:pre-wrap;word-break:break-word;">${esc(t.content.replace(/\n$/, ''))}</div>`);
+      out.push(`<div class="mono-blk" style="font-family:${MONO};font-size:12.5px;line-height:1.65;color:${T.ink};${out.length ? 'margin-top:18px;' : ''}white-space:pre-wrap;word-break:break-word;">${esc(t.content.replace(/\n$/, ''))}</div>`);
       i++;
       continue;
     }
@@ -309,8 +312,8 @@ export function renderMarkdownBody(source, opts = {}) {
     }
 
     // §9: an unhandled token type throws. Falling through would emit markdown-it's
-    // default HTML, which carries no class, so no dark-mode counterpart — the
-    // precise mechanism behind the unreadable Pages notification.
+    // default HTML, which carries no class and sits outside the component
+    // catalog — the route behind the unreadable Pages notification.
     if (!IGNORED.has(t.type)) {
       throw new MarkdownError(`unhandled markdown token "${t.type}" — add a component or remove the construct`);
     }

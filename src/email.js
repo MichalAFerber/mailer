@@ -26,7 +26,10 @@ const MONO_S = "'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace";
 // CAN-SPAM governs commercial mail to others, not notes to yourself — so
 // internal mail drops them and leads with the content (spec exemption, owner
 // decision 2026-08-04).
-const HEADER_ROW = `  <tr><td style="padding:0 4px 18px 4px;">
+//
+// 37px (21px on phones, via .head-pad) = the card's inner padding + its 1px
+// border, so the logomark lines up with the body copy and the footer.
+const HEADER_ROW = `  <tr><td class="head-pad" style="padding:0 37px 18px 37px;">
     <img src="{{LOGO_URL}}" width="26" height="26" alt=""
          style="width:26px;height:26px;border-radius:6px;vertical-align:middle;">
     <span class="mono ink" style="font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;font-weight:700;letter-spacing:-.2px;color:#14161a;vertical-align:middle;padding-left:9px;">

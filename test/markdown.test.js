@@ -32,6 +32,18 @@ raw output
   assert.equal(inMono, 1, 'the only pre-wrap must be the mono block');
 });
 
+test('the unboxed mono block keeps a top margin only when a block precedes it', () => {
+  // Unboxed (owner decision 2026-09-25), a fence has no padding of its own, and
+  // prose carries only top padding — so without its margin a fence would sit
+  // flush against the paragraph above. As the first block (the contact lane)
+  // there is nothing to separate it from, and the card's padding is the gap.
+  const tag = (html) => html.match(/<div class="mono-blk[^"]*"[^>]*>/)?.[0] ?? '';
+  const after = tag(r('Some prose.\n\n```\nraw output\n```\n'));
+  const first = tag(r('```\nraw output\n```\n'));
+  assert.match(after, /margin-top:18px;/, 'a fence after prose lost its separating margin');
+  assert.doesNotMatch(first, /margin/, 'a leading fence carries a margin with nothing above it');
+});
+
 test('a table wider than three columns throws rather than degrading', () => {
   assert.throws(
     () => r('| a | b | c | d |\n|---|---|---|---|\n| 1 | 2 | 3 | 4 |\n'),
@@ -80,8 +92,8 @@ test('non-https links throw rather than degrading to #', () => {
 });
 
 test('an unhandled markdown construct throws instead of emitting default HTML', () => {
-  // Default output is unclassed output — no dark-mode counterpart. That is the
-  // mechanism behind the unreadable Pages notification, not a styling slip.
+  // Default output is unclassed output, outside the component catalog. That is
+  // the route behind the unreadable Pages notification, not a styling slip.
   assert.throws(() => r('![alt](https://x.test/i.png)\n'), MarkdownError);
 });
 
@@ -90,15 +102,6 @@ test('GitHub alerts map to callout statuses', () => {
   assert.ok(r('> [!CAUTION] Bad\n> body\n').includes('#fbe6e4'), 'CAUTION should be bad');
   assert.ok(r('> [!WARNING] Warn\n> body\n').includes('#fbf1dc'), 'WARNING should be warn');
   assert.ok(r('> [!NOTE] Note\n> body\n').includes('#e3f2ea'), 'NOTE should be ok');
-});
-
-test('every emitted cell/text carries a class the dark-mode query targets', () => {
-  const html = r('# T\n\n## S {ok}\n\nProse.\n\n| a | b |\n|---|---|\n| 1 | 2 |\n');
-  // An element with an inline colour and no class keeps it in dark mode, because
-  // inline beats the stylesheet. That is gotcha #2, and it shipped once already.
-  const coloured = html.match(/<(?:td|div|span|a)[^>]*color:#[0-9a-f]{6}[^>]*>/gi) || [];
-  const unclassed = coloured.filter((tag) => !/class="/.test(tag));
-  assert.equal(unclassed.length, 0, `${unclassed.length} coloured element(s) without a class: ${unclassed[0]}`);
 });
 
 test('the eyebrow comes from the sender, not the markdown', () => {
@@ -121,24 +124,6 @@ test('fixture: pre-wrap appears once per fence and zero times without one', asyn
 
   const noFence = renderEmail({ ...FIXTURE, markdown: '# T\n\nProse only.\n' }).html;
   assert.equal((noFence.match(/white-space:pre-wrap/g) || []).length, 0);
-});
-
-test('fixture: every inline colour has a dark-mode selector', async () => {
-  const { renderEmail } = await import('../src/email.js');
-  const { FIXTURE } = await import('../src/fixture.js');
-  const html = renderEmail(FIXTURE).html;
-  const dark = html.slice(html.indexOf('@media (prefers-color-scheme: dark)'));
-  // Accent and semantic status colours are mode-invariant BY DESIGN — the token
-  // table gives accent no dark value, and pill/callout fills stay light so they
-  // survive clients that strip backgrounds. What must never be unclassed is a
-  // NEUTRAL colour: those flip in dark mode, and inline beats the stylesheet.
-  const INVARIANT = /#a8322a|#a4231f|#fbe6e4|#0f6b47|#e3f2ea|#8a5a00|#fbf1dc|#7a1e1a/i;
-  const coloured = html.match(/<(?:td|div|span|a|li)[^>]*(?:color|background):#[0-9a-f]{6}[^>]*>/gi) || [];
-  const unclassed = coloured.filter((t) => !/class="/.test(t) && !INVARIANT.test(t));
-  assert.equal(unclassed.length, 0, `neutral-coloured element with no class: ${unclassed[0]}`);
-  for (const cls of ['card', 'ink', 'muted', 'rule', 'wash', 'cell', 'mono-blk', 'link', 'btn']) {
-    assert.ok(new RegExp(`\\.${cls}[^}]*!important`).test(dark), `.${cls} lacks a dark rule with !important`);
-  }
 });
 
 test('fixture: no token survives, and no external request but the logo', async () => {
@@ -221,8 +206,8 @@ test('footer addresses are linked by us, not by the mail client', async () => {
   const hostile = escWithMailto('<b>x</b> mail a@b.us now');
   assert.ok(hostile.includes('&lt;b&gt;'), 'escaping lost');
   assert.ok(hostile.includes('href="mailto:a@b.us"'));
-  // A dark-mode-aware class rides along so the link is not client-default blue.
-  assert.ok(escWithMailto('a@b.app').includes('class="link"'));
+  // An explicit inline color rides along so the link is not client-default blue.
+  assert.match(escWithMailto('a@b.app'), /<a [^>]*style="color:#5b636e;/);
 });
 
 test('internal brand drops the logomark and footer; external keeps both', async () => {

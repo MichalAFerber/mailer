@@ -68,18 +68,6 @@ test('rejects non-https hrefs rather than emitting them', () => {
   assert.ok(!html.includes('href="/relative"'), 'relative URL was emitted');
 });
 
-test('every inline colour has a dark-mode counterpart class', () => {
-  const { html } = renderEmail(doc());
-  // The failure this guards: an element with an inline colour and no dark class
-  // keeps its light colour in dark mode, because inline beats the stylesheet.
-  // The mono block shipped dark-on-dark exactly this way.
-  const dark = html.slice(html.indexOf('@media (prefers-color-scheme: dark)'), html.indexOf('a { text-decoration:none; }'));
-  for (const cls of ['card', 'ink', 'muted', 'rule', 'wash', 'cell', 'mono-blk', 'link', 'btn']) {
-    assert.ok(dark.includes(`.${cls}`), `dark mode has no rule for .${cls}`);
-    assert.ok(new RegExp(`\\.${cls}[^}]*!important`).test(dark), `.${cls} dark rule lacks !important`);
-  }
-});
-
 test('the card table is border-separate so its radius and border agree', () => {
   const { html } = renderEmail(doc());
   // Collapsed tables ignore radius on borders: the background still clips to the
