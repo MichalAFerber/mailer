@@ -14,7 +14,8 @@ export { MarkdownError };
  * @typedef {{name:string,logoUrl:string,accent:string,footerNotice:string,
  *            footerPostal:string,unsubscribeUrl?:string,internal?:boolean}} Brand
  * @typedef {{brand:Brand,subject:string,preheader:string,markdown:string,
- *            signoff?:string,eyebrow?:string}} Message
+ *            signoff?:string,eyebrow?:string,proseFence?:boolean}} Message
+ * proseFence sets fences in the body's sans font; only handleContact passes it.
  */
 
 const MONO_S = "'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace";
@@ -73,7 +74,7 @@ const signoffHtml = (text) => `<table role="presentation" width="100%" cellpaddi
 /** @param {Message} msg */
 export function renderEmail(msg) {
   const { brand } = msg;
-  let body = renderMarkdownBody(msg.markdown, { eyebrow: msg.eyebrow });
+  let body = renderMarkdownBody(msg.markdown, { eyebrow: msg.eyebrow, proseFence: msg.proseFence });
   if (msg.signoff) body += `\n\n    ${signoffHtml(msg.signoff)}`;
 
   const html = LAYOUT

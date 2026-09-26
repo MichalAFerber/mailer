@@ -117,18 +117,27 @@ test('GOLDEN: contact email matches the §6 house format byte-for-byte', async (
   // shows is one way to hold that layout in HTML, not the requirement itself. From
   // 2026-08-02 the block rode in the §9 mono block inside the house template, which
   // boxed it in a wash fill and border that read as a card inside the card. Owner
-  // decision 2026-09-25: the mono block is unboxed. It is still the pre-wrap
-  // carrier, with no fill, border, radius, or padding around it, and as the first
-  // block in the card it takes no top margin either.
+  // decision 2026-09-25: the mono block is unboxed. Owner decision 2026-09-26: the
+  // message is a person writing, so it reads in the body's sans font rather than
+  // monospace. It is still the pre-wrap carrier, with no fill, border, radius, or
+  // padding around it, and as the first block in the card it takes no top margin
+  // either. Its class is not mono, mono-blk, or mono-in: Outlook's conditional
+  // stylesheet forces all three to Consolas.
   //
   // So assert the layout, in both parts, rather than the markup that carried it.
   const BLOCK = 'Name:\tJamie Doe\nEmail:\tjamie@example.com\n\nHello,\nhow much is Pro?\n\nThanks!';
   assert.ok(mail.text.includes(BLOCK), 'the §6 block must survive verbatim in text/plain');
   assert.ok(mail.html.includes('Name:\tJamie Doe'), 'the tab after the label was lost in HTML');
-  const carrier = mail.html.match(/<div class="mono-blk[^"]*"([^>]*)>Name:\tJamie Doe/);
-  assert.ok(carrier, 'the §6 block must ride in the mono block');
-  assert.match(carrier[1], /white-space:pre-wrap/, 'the mono block must stay the pre-wrap carrier');
-  assert.doesNotMatch(carrier[1], /background|border|padding|margin/,
+  const carrier = mail.html.match(/<div class="([^"]*)"([^>]*)>Name:\tJamie Doe/);
+  assert.ok(carrier, 'the §6 block must ride in a div carrier');
+  const [, cls, attrs] = carrier;
+  assert.doesNotMatch(cls, /(^|\s)mono(-blk|-in)?(\s|$)/, `the §6 carrier is classed "${cls}", which Outlook forces to Consolas`);
+  assert.ok(!mail.html.includes('class="mono-blk'), 'the contact email still renders a mono block');
+  assert.match(attrs, /white-space:pre-wrap/, 'the §6 carrier must stay pre-wrap');
+  assert.match(attrs, /font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;/,
+    'the §6 message is not in the body\'s sans stack');
+  assert.doesNotMatch(attrs, /JetBrains Mono|monospace/, 'the §6 message is monospace again');
+  assert.doesNotMatch(attrs, /background|border|padding|margin/,
     'the §6 block is boxed again — a card inside the card');
   assert.ok(!mail.html.includes('#f5f6f8'), 'a wash fill is back in the contact email');
   assert.ok(!/white-space:pre;/.test(mail.html), 'the old bare pre div should be gone');

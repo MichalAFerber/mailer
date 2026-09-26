@@ -20,6 +20,7 @@ import MarkdownIt from 'markdown-it';
 
 const MONO = "'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
 const MONO_S = "'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace";
+const SANS = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 const T = { ink: '#14161a', muted: '#5b636e', rule: '#dfe3e8', wash: '#f5f6f8' };
 
 // Status vocabulary is closed on purpose. Let scripts pass arbitrary pill text
@@ -121,8 +122,10 @@ function inline(tokens, ctx) {
 
 /**
  * @param {string} source markdown
- * @param {{eyebrow?: string}} [opts] eyebrow is the job/product label above the H1;
- *   it is not in the markdown because it belongs to the sender, not the message.
+ * @param {{eyebrow?: string, proseFence?: boolean}} [opts] eyebrow is the job/product
+ *   label above the H1; it is not in the markdown because it belongs to the sender,
+ *   not the message. proseFence sets fences in the body's sans font instead of the
+ *   mono block; only the contact lane passes it.
  * @returns {string} component HTML for the {{BODY}} slot
  */
 export function renderMarkdownBody(source, opts = {}) {
@@ -229,9 +232,19 @@ export function renderMarkdownBody(source, opts = {}) {
     // ── MONO BLOCK ──────────────────────────────────────────────────────
     // Unboxed (owner decision 2026-09-25): no fill, border, or padding, so it
     // never reads as a card inside the card. The top margin only separates it
-    // from the block above; as the first block (the contact lane) it takes none.
+    // from the block above; as the first block it takes none.
+    //
+    // proseFence (owner decision 2026-09-26): the contact lane's §6 block is a
+    // person's message, so it reads in the body's sans font. It is the same
+    // escaped, pre-wrap carrier, so the TAB after each label survives. Its class
+    // is not mono-blk, because the Outlook stylesheet forces mono-blk to Consolas.
+    // Every other fence stays mono: ops reports carry real log output.
     if (t.type === 'fence' || t.type === 'code_block') {
-      out.push(`<div class="mono-blk" style="font-family:${MONO};font-size:12.5px;line-height:1.65;color:${T.ink};${out.length ? 'margin-top:18px;' : ''}white-space:pre-wrap;word-break:break-word;">${esc(t.content.replace(/\n$/, ''))}</div>`);
+      const gap = out.length ? 'margin-top:18px;' : '';
+      const text = esc(t.content.replace(/\n$/, ''));
+      out.push(opts.proseFence
+        ? `<div class="msg-blk" style="font-family:${SANS};font-size:15px;line-height:1.6;color:${T.ink};${gap}white-space:pre-wrap;word-break:break-word;tab-size:8;">${text}</div>`
+        : `<div class="mono-blk" style="font-family:${MONO};font-size:12.5px;line-height:1.65;color:${T.ink};${gap}white-space:pre-wrap;word-break:break-word;">${text}</div>`);
       i++;
       continue;
     }

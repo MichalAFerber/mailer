@@ -98,6 +98,7 @@ export default {
         };
         const cm = renderMarkdownEmail({
           ...FIXTURE, markdown: contactMarkdown(hostile), eyebrow: 'Contact form',
+          proseFence: true,
         });
         report.contact = {
           renders: true,
@@ -236,8 +237,8 @@ function mdBrand(product, slug) {
 // submission into a broken form for everybody.
 //
 // §6 mandates the body layout exactly: four lines, a TAB after each label, blank
-// line before the message. The tab is normative and preserved verbatim — the mono
-// block is white-space:pre-wrap, so it survives in the HTML, and the markdown
+// line before the message. The tab is normative and preserved verbatim — the
+// carrier is white-space:pre-wrap, so it survives in the HTML, and the markdown
 // source IS the text/plain part (§10), so the text part matches the standard's
 // `text` block byte for byte.
 export function contactMarkdown({ name, email, message }) {
@@ -432,6 +433,7 @@ async function handleContact(request, env, product, ctx, slug) {
     subject: `${product.name}⎯${subject}`,
     preheader: `${name} via ${product.domain}`,
     markdown: contactMd,
+    proseFence: true,
   });
 
   const sent = await sendEmail(env, {

@@ -7,6 +7,10 @@
 // card": one card on a white page with its thin border kept, no accent hairline,
 // the logomark aligned with the card's content, every mono block unboxed, and no
 // dark mode.
+//
+// Owner decision 2026-09-26, after reviewing mockups: the card sits on a sand page,
+// the way Stripe's receipts do, with a warmer edge, a 12px radius, and a soft
+// shadow. Report fences stay monospace; only the contact lane's message is sans.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -47,14 +51,15 @@ const mobileRules = (html) => {
 };
 
 for (const [lane, render] of Object.entries(LANES)) {
-  test(`${lane} lane: the page is white and the card keeps its thin border`, () => {
+  test(`${lane} lane: a white card with a soft shadow on a sand page`, () => {
     const html = render();
     assert.ok(!html.includes('#eceef1'), 'the grey page color is back');
-    assert.match(html, /<body class="page" style="[^"]*background:#ffffff;/, 'body does not paint the page white');
-    assert.match(html, /bgcolor="#ffffff" class="page" style="background:#ffffff;"/,
-      'the outer wrap table does not paint the page white');
-    assert.match(html, /class="card" style="background:#ffffff;border-radius:16px;border:1px solid #dfe3e8;padding:40px 36px;"/,
-      'the card lost its fill, border, radius, or padding');
+    assert.match(html, /<body class="page" style="[^"]*background:#f5f2ec;/, 'body does not paint the page sand');
+    assert.match(html, /bgcolor="#f5f2ec" class="page" style="background:#f5f2ec;"/,
+      'the outer wrap table does not paint the page sand');
+    assert.ok(html.includes('<td bgcolor="#ffffff" class="card" style="background:#ffffff;border-radius:12px;'
+      + 'border:1px solid #e8e2d6;box-shadow:0 1px 2px rgba(20,22,26,.05),0 8px 24px rgba(20,22,26,.06);'
+      + 'padding:40px 36px;">'), 'the card lost its fill, edge, radius, shadow, or padding');
   });
 
   test(`${lane} lane: no accent hairline, so the accent is only the wordmark dot`, () => {
@@ -95,5 +100,16 @@ for (const [lane, render] of Object.entries(LANES)) {
     assert.match(tag, /white-space:pre-wrap;word-break:break-word;/, 'the mono block lost pre-wrap');
     assert.match(tag, /margin-top:\d+px;/, 'a mono block after another block lost its separating margin');
     assert.doesNotMatch(mobileRules(html), /\.mono-blk[^}]*padding/, 'the mobile rule pads the mono block again');
+  });
+
+  // Only the contact lane opts into the sans carrier (owner decision 2026-09-26).
+  // A report's fence holds real log output, so it must stay in the mono stack.
+  test(`${lane} lane: a report fence stays the monospace mono block`, () => {
+    const html = render();
+    assert.ok(!html.includes('class="msg-blk'), 'a report fence took the contact lane\'s sans carrier');
+    const [tag] = html.match(/<div class="mono-blk"[^>]*>/g) || [];
+    assert.ok(tag, 'the report fence is no longer a mono block');
+    assert.match(tag, /style="font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12\.5px;/,
+      `the report fence left the mono stack: ${tag}`);
   });
 }
