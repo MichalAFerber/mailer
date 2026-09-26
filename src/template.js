@@ -6,10 +6,10 @@
 // demo document against it as a golden fixture.
 //
 // Inline styles are copied verbatim from the reference and are the source of
-// truth for every visual property; the two <style> blocks carry ONLY the
-// responsive and dark-mode overrides, because inline styles beat stylesheet
-// rules and a dark-mode rule without !important loses to them. That is how the
-// mono block originally shipped near-black on near-black.
+// truth for every visual property; the <style> block carries ONLY the
+// responsive overrides, because inline styles beat stylesheet rules and an
+// override without !important loses to them. There is no dark mode (owner
+// decision 2026-09-25): the color-scheme meta declares light only.
 //
 // Layout is tables throughout. No flex, no grid, no divs-as-layout, no external
 // CSS, no web fonts — all of it is dead on arrival in Outlook and most clients.
@@ -47,12 +47,12 @@ import { escWithMailto } from './markdown.js';
 // ── tokens ────────────────────────────────────────────────────────────────
 // Every colour in the template comes from here. Do not invent values.
 const T = {
-  page: '#eceef1', card: '#ffffff', ink: '#14161a', muted: '#5b636e',
+  page: '#ffffff', card: '#ffffff', ink: '#14161a', muted: '#5b636e',
   rule: '#dfe3e8', wash: '#f5f6f8',
 };
 
-// Pill fills stay light in dark mode by design: the text colour is semantic on
-// its own, so the pill still reads in clients that strip backgrounds.
+// The pill's text color is semantic on its own, so a pill still reads in
+// clients that strip backgrounds.
 const PILL = {
   ok:      { fg: '#0f6b47', bg: '#e3f2ea' },
   warn:    { fg: '#8a5a00', bg: '#fbf1dc' },
@@ -230,8 +230,11 @@ function fitTable(b, room) {
 
 // Raw output only. Anything with rows and columns belongs in a DATA TABLE.
 // word-break stops long paths and datastore names blowing out the layout.
+// Unboxed (owner decision 2026-09-25): no fill, border, or padding, so it never
+// reads as a card inside the card. The top margin separates it from the block
+// above, as every block's own top margin does in this lane.
 const blockMono = (b) => `
-    <div class="mono-blk wash" style="font-family:${MONO};font-size:12.5px;line-height:1.65;color:${T.ink};background:${T.wash};border:1px solid ${T.rule};border-radius:10px;padding:16px 18px;margin-top:20px;white-space:pre-wrap;word-break:break-word;">${esc(b.content)}</div>`;
+    <div class="mono-blk" style="font-family:${MONO};font-size:12.5px;line-height:1.65;color:${T.ink};margin-top:20px;white-space:pre-wrap;word-break:break-word;">${esc(b.content)}</div>`;
 
 // One per email, never two.
 const blockButton = (b) => `
@@ -303,11 +306,11 @@ export function renderEmail(doc) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="x-apple-disable-message-reformatting">
-<meta name="color-scheme" content="light dark">
-<meta name="supported-color-schemes" content="light dark">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
 <title>${esc(doc.subject)}</title>
 <style>
-  /* Layout classes are only used by these two queries. Everything visual is inline. */
+  /* Layout classes are only used by this query. Everything visual is inline. */
   @media only screen and (max-width:600px) {
     .wrap     { padding:16px !important; }
     .card     { padding:28px 20px !important; border-radius:12px !important; }
@@ -315,24 +318,11 @@ export function renderEmail(doc) {
     .stack    { display:block !important; width:100% !important; }
     .stack-pad{ padding:0 0 12px 0 !important; }
     .cell     { padding:9px 8px !important; font-size:12px !important; }
-    .mono-blk { font-size:12px !important; padding:14px !important; }
+    .mono-blk { font-size:12px !important; }
     .btn      { display:block !important; text-align:center !important; }
     .hide-sm  { display:none !important; }
+    .head-pad { padding:0 21px 18px 21px !important; }
     .foot-pad { padding:20px 21px 0 21px !important; }
-  }
-
-  @media (prefers-color-scheme: dark) {
-    body, .page      { background:#0c0d0f !important; }
-    .card            { background:#16181c !important; border-color:#292d33 !important; }
-    .ink, .h1, .h2   { color:#f2f4f7 !important; }
-    .muted           { color:#9aa3ad !important; }
-    .rule            { border-color:#292d33 !important; background:#292d33 !important; }
-    .wash            { background:#1d2025 !important; }
-    .cell            { border-color:#292d33 !important; color:#d6dae0 !important; }
-    .btn, .btn-wrap  { background:#f2f4f7 !important; color:#14161a !important; }
-    .link            { color:#8ab4f8 !important; }
-    /* mono block carries its own color inline — must be flipped explicitly */
-    .mono-blk        { background:#1d2025 !important; border-color:#31363d !important; color:#e4e8ee !important; }
   }
 
   a { text-decoration:none; }
@@ -367,7 +357,9 @@ export function renderEmail(doc) {
      border draws square = doubled corner). Data tables below stay collapsed. -->
 <table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:640px;border-collapse:separate;border-spacing:0;">
 
-  <tr><td style="padding:0 4px 18px 4px;">
+  <!-- 37px (21px on phones, via .head-pad) = the card's inner padding + its 1px
+       border, so the logomark lines up with the body copy and the footer. -->
+  <tr><td class="head-pad" style="padding:0 37px 18px 37px;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
       <td align="left" valign="middle">
         <img src="${safeHref(brand.logoUrl)}" width="26" height="26" alt="${esc(brand.name)}"
@@ -380,12 +372,6 @@ export function renderEmail(doc) {
   </td></tr>
 
   <tr><td bgcolor="${T.card}" class="card" style="background:${T.card};border-radius:16px;border:1px solid ${T.rule};padding:40px 36px;">
-
-    <!-- accent hairline: the only place the brand color appears -->
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-      <td height="3" style="height:3px;line-height:3px;font-size:0;background:${esc(brand.accent)};width:44px;">&nbsp;</td>
-      <td height="3" style="height:3px;line-height:3px;font-size:0;">&nbsp;</td>
-    </tr></table>
 ${body}
 
   </td></tr>
