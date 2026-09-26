@@ -41,14 +41,14 @@ export const LAYOUT = String.raw`<!DOCTYPE html>
 <![endif]-->
 </head>
 
-<body class="page" style="margin:0;padding:0;width:100%;background:#ffffff;color:#14161a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased;">
+<body class="page" style="margin:0;padding:0;width:100%;background:#f5f2ec;color:#14161a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased;">
 
 <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;opacity:0;">
   {{PREHEADER}}
   &#8203;&#847;&#8203;&#847;&#8203;&#847;&#8203;&#847;&#8203;&#847;&#8203;&#847;&#8203;&#847;&#8203;&#847;
 </div>
 
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" class="page" style="background:#ffffff;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f5f2ec" class="page" style="background:#f5f2ec;">
 <tr><td align="center" class="wrap" style="padding:32px;">
 
 <table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:640px;border-collapse:separate;border-spacing:0;">
@@ -56,7 +56,7 @@ export const LAYOUT = String.raw`<!DOCTYPE html>
   
 {{HEADER}}
 
-  <tr><td bgcolor="#ffffff" class="card" style="background:#ffffff;border-radius:16px;border:1px solid #dfe3e8;padding:40px 36px;">
+  <tr><td bgcolor="#ffffff" class="card" style="background:#ffffff;border-radius:12px;border:1px solid #e8e2d6;box-shadow:0 1px 2px rgba(20,22,26,.05),0 8px 24px rgba(20,22,26,.06);padding:40px 36px;">
 
 {{BODY}}
 

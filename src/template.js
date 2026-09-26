@@ -46,9 +46,12 @@ import { escWithMailto } from './markdown.js';
 
 // ── tokens ────────────────────────────────────────────────────────────────
 // Every colour in the template comes from here. Do not invent values.
+// A white card on a sand page, drawn by its own edge and a soft shadow (owner
+// decision 2026-09-26). `edge` is the card's border only; hairlines stay `rule`.
 const T = {
-  page: '#ffffff', card: '#ffffff', ink: '#14161a', muted: '#5b636e',
-  rule: '#dfe3e8', wash: '#f5f6f8',
+  page: '#f5f2ec', card: '#ffffff', ink: '#14161a', muted: '#5b636e',
+  rule: '#dfe3e8', wash: '#f5f6f8', edge: '#e8e2d6',
+  shadow: '0 1px 2px rgba(20,22,26,.05),0 8px 24px rgba(20,22,26,.06)',
 };
 
 // The pill's text color is semantic on its own, so a pill still reads in
@@ -371,7 +374,7 @@ export function renderEmail(doc) {
     </tr></table>
   </td></tr>
 
-  <tr><td bgcolor="${T.card}" class="card" style="background:${T.card};border-radius:16px;border:1px solid ${T.rule};padding:40px 36px;">
+  <tr><td bgcolor="${T.card}" class="card" style="background:${T.card};border-radius:12px;border:1px solid ${T.edge};box-shadow:${T.shadow};padding:40px 36px;">
 ${body}
 
   </td></tr>
