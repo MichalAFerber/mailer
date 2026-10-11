@@ -2,7 +2,11 @@
 # are identifiers, not credentials, and every sibling Worker commits both.
 # Secrets are set with `wrangler secret put` and never live here.
 name = "mailer"
-main = "src/index.js"
+# src/worker.js re-exports src/index.js's fetch handler untouched and adds the
+# one named entrypoint, AdminDirectory, which tgwab-admin binds. It is a separate
+# file because `cloudflare:workers` resolves only inside workerd, and index.js is
+# imported directly by the node:test suite.
+main = "src/worker.js"
 compatibility_date = "2026-06-01"
 account_id = "8a0d49b1f3fdcdadec135562ec8a4fdc"
 
