@@ -78,6 +78,129 @@ Errors use the platform envelope `{error, code}` with machine-readable codes
 (`unauthorized`, `unknown_product`, `bad_payload`, `turnstile_failed`,
 `origin_denied`, `email_upstream_failed`, `not_found`).
 
+## Admin directory (service binding, read-only)
+
+`admin.tgwab.us` mirrors the Forward Email account: its domains, their aliases,
+and which product sends from which domain. The account-wide Forward Email key
+lives in this Worker and nowhere else (DEV-STANDARDS §6), so the admin Worker
+reads through a named entrypoint, `AdminDirectory`, over a service binding:
+
+```toml
+# In the consumer's wrangler.toml (tgwab-admin).
+[[services]]
+binding = "MAILER_DIRECTORY"
+service = "mailer"
+entrypoint = "AdminDirectory"
+```
+
+```js
+const domains = await env.MAILER_DIRECTORY.feDomains();
+const aliases = await env.MAILER_DIRECTORY.feAliases('example.com');
+const products = await env.MAILER_DIRECTORY.products();
+```
+
+The binding is the authentication. No route, header, query parameter, or
+hostname reaches these methods: `mailer.thompsonblack.us` delivers to the
+default export (`src/index.js`), which never imports `src/directory.js`. The
+entrypoint has these three methods and no `fetch`. Each is a read: one `GET` to
+Forward Email, or a `list` and `get` on the `PRODUCTS` KV. Nothing is written,
+sent, retried, or cached, so every call asks again.
+
+Every answer is an allow-list. A field not in the tables below does not cross,
+and a value of the wrong shape (a flag that is not a boolean, an id that is not
+24 hex characters, an address that is not an address) crosses as `null`.
+
+### `feDomains()`
+
+One `GET /v1/domains?pagination=false`. Returns one object per domain:
+
+| Field | Value |
+|---|---|
+| `id` | Forward Email's id for the domain, 24 hex characters |
+| `name` | the domain, as a lowercase hostname |
+| `plan` | `free`, `enhanced_protection`, or `team` |
+| `has_mx_record`, `has_txt_record` | inbound: the MX and the verification TXT are in place |
+| `has_smtp`, `smtp_verified_at`, `is_smtp_suspended` | outbound: whether, and since when, this Worker may send from the domain |
+| `has_dkim_record`, `has_return_path_record`, `has_dmarc_record` | outbound DNS, as Forward Email last checked it |
+| `bounce_webhook` | `null` when unset; otherwise `{ kind: "webhook", host, path }` or `{ kind: "other" }` (see below) |
+
+Not returned, among everything else: `verification_record`, `smtp_dns_records`,
+the S3 settings, `allowlist`, `denylist`, `custom_verification`, members,
+invites, and the storage and retention settings.
+
+### `feAliases(domain)`
+
+`domain` is a lowercase hostname (`example.com`), checked before it goes into a
+URL; anything else throws `invalid_domain` and Forward Email is not called. One
+`GET /v1/domains/<domain>/aliases?pagination=false`. Returns one object per
+alias:
+
+| Field | Value |
+|---|---|
+| `id` | Forward Email's id for the alias, 24 hex characters |
+| `name` | the local part; `*` is the catch-all |
+| `is_enabled` | whether the alias accepts mail |
+| `has_imap` | whether mail is stored in a mailbox; `null` when Forward Email leaves the field out, which is not the same as off |
+| `recipients` | a list of `{ kind: "email", address }`, `{ kind: "webhook", host, path }`, or `{ kind: "other" }`; `null` when Forward Email returns no list |
+
+Not returned, among everything else: `description`, `labels`,
+`vacation_responder`, `verified_recipients`, `pending_recipients`, the PGP key,
+and the account and domain objects Forward Email nests in every alias.
+
+### `products()`
+
+The `PRODUCTS` KV as this Worker holds it, one object per `product:<slug>` key:
+
+| Field | Value |
+|---|---|
+| `slug` | from the key; the record has none |
+| `name` | the display name mail is sent under |
+| `domain` | the product's domain |
+| `from_addr` | the sender address |
+| `contact_to` | where `/contact/<slug>` delivers |
+| `allowed_origins` | the origins that may post to `/contact/<slug>`, each cut to scheme and host |
+| `white_label`, `transactional_only` | both `true` is what admits the brand-override lane |
+| `has_send_token` | `true` when `/send/<slug>` takes the product's own token, `false` when it takes the shared one |
+
+Not returned: `send_token_sha256`, `turnstile_ref`, `icon_url`, `accent`,
+`unsubscribe_url`, and any field the record gains later.
+
+### Webhook URLs
+
+A domain's `bounce_webhook` and an alias's recipients can be URLs with a secret
+in the path, as herald's `/bounce/<secret>` and `/email-in/<secret>` are. A URL
+never crosses. An `http` or `https` URL becomes
+`{ kind: "webhook", host, path }`, where `path` is `/<first-segment>/[redacted]`:
+
+- The query, the fragment, and any userinfo are dropped.
+- The first segment is kept only when another segment follows it and it reads
+  as a route name: lowercase letters and hyphens, 16 at most. A path of one
+  segment, or one whose first segment has a digit or a capital in it, is
+  `/[redacted]`. No path is `/`.
+- The host is returned whole, so a secret carried in a hostname would cross.
+
+A recipient that is an email address is `{ kind: "email", address }`. Anything
+else (a bare hostname, an IP, a URL of another scheme, a value that is not a
+string) is `{ kind: "other" }`, with no value.
+
+### Errors
+
+A failure is a thrown `Error` named `DirectoryError`. Its `code` is one of the
+values below, and its `message` is `<code>: <detail>`, so the code is readable
+from either. An account with no domains, a domain with no aliases, and a KV
+with no products are each an empty list, never an error.
+
+| Code | Meaning |
+|---|---|
+| `invalid_domain` | `feAliases` was not given a lowercase hostname; Forward Email was not called |
+| `fe_unreachable` | the request to Forward Email did not complete |
+| `fe_status` | Forward Email answered outside 2xx; the message carries the status |
+| `fe_bad_body` | a 2xx whose body is not a JSON list |
+| `fe_incomplete` | Forward Email holds more rows than the one page (1,000) it returned |
+
+No message quotes a response body. A KV failure in `products()` is thrown as
+it came.
+
 ## Deploy
 
 ```bash
