@@ -13,7 +13,11 @@ account_id = "8a0d49b1f3fdcdadec135562ec8a4fdc"
 # Access apps and Turnstile guard hostnames; a workers.dev route would be an
 # unguarded second front door.
 workers_dev = false
-routes = [{ pattern = "mailer.thompsonblack.us", custom_domain = true }]
+routes = [
+  { pattern = "mailer.thompsonblack.us", custom_domain = true },
+  # The tgwab.us move (P1 step 3): added beside the old name, which keeps serving.
+  { pattern = "mailer.tgwab.us", custom_domain = true },
+]
 
 # Low-volume Worker; full sampling costs little and keeps request logs for debugging /contact and /send.
 [observability]
