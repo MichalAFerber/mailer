@@ -81,7 +81,8 @@ Errors use the platform envelope `{error, code}` with machine-readable codes
 ## Admin directory (service binding, read-only)
 
 `admin.tgwab.us` mirrors the Forward Email account: its domains, their aliases,
-and which product sends from which domain. The account-wide Forward Email key
+which product sends from which domain, and the mail this Worker has sent (the
+panel's Message log). The account-wide Forward Email key
 lives in this Worker and nowhere else (DEV-STANDARDS §6), so the admin Worker
 reads through a named entrypoint, `AdminDirectory`, over a service binding:
 
@@ -97,14 +98,15 @@ entrypoint = "AdminDirectory"
 const domains = await env.MAILER_DIRECTORY.feDomains();
 const aliases = await env.MAILER_DIRECTORY.feAliases('example.com');
 const products = await env.MAILER_DIRECTORY.products();
+const sent = await env.MAILER_DIRECTORY.feEmails(1);
 ```
 
 The binding is the authentication. No route, header, query parameter, or
 hostname reaches these methods: `mailer.thompsonblack.us` delivers to the
 default export (`src/index.js`), which never imports `src/directory.js`. The
-entrypoint has these three methods and no `fetch`. Each is a read: one `GET` to
-Forward Email, or a `list` and `get` on the `PRODUCTS` KV. Nothing is written,
-sent, retried, or cached, so every call asks again.
+entrypoint has these four methods and no `fetch`. Each is a read: one `GET` to
+Forward Email, a `list` and `get` on the `PRODUCTS` KV, or, for `feEmails`, both.
+Nothing is written, sent, retried, or cached, so every call asks again.
 
 Every answer is an allow-list. A field not in the tables below does not cross,
 and a value of the wrong shape (a flag that is not a boolean, an id that is not
@@ -165,6 +167,40 @@ The `PRODUCTS` KV as this Worker holds it, one object per `product:<slug>` key:
 Not returned: `send_token_sha256`, `turnstile_ref`, `icon_url`, `accent`,
 `unsubscribe_url`, and any field the record gains later.
 
+### `feEmails(page)`
+
+`page` is a whole number from 1 to 100; anything else throws `invalid_page` and
+Forward Email is not called. The `PRODUCTS` KV is read first, as `products()`
+reads it, and then one `GET /v1/emails?limit=100&page=<page>&sort=-created_at`:
+one page of the account's outbound mail, newest first. Returns one object:
+
+| Field | Value |
+|---|---|
+| `emails` | the messages on the page that this Worker sent, as below |
+| `page` | the page asked for |
+| `has_more` | whether Forward Email holds a later page: by its `X-Page-Count` header, or, without one, by whether this page held 100 |
+| `oldest_created_at` | the earliest `created_at` on the page, before the filter below, so a caller reading back to a date knows when to stop; `null` on an empty page |
+| `others` | how many messages on the page were not sent as a product's `from_addr`; only the count crosses |
+
+A message is in `emails` only when its envelope sender is the `from_addr` of a
+product record. The account also holds client domains whose people send their
+own mail through Forward Email, and none of that crosses. Each message:
+
+| Field | Value |
+|---|---|
+| `id` | Forward Email's id for the message, 24 hex characters |
+| `created_at` | when Forward Email accepted it, as ISO 8601 UTC |
+| `status` | `pending`, `queued`, `sent`, `partially_sent`, `deferred`, `bounced`, or `rejected` |
+| `from` | the envelope sender, lowercased: a product's `from_addr` |
+| `to` | the envelope recipients (To, Cc, and Bcc together), addresses only, at most 50 |
+| `subject` | the subject as one line, cut to 300 characters |
+| `message_id` | the `Message-ID` header, angle brackets included |
+| `products` | the slugs of every product that sends as `from`, sorted; several products can share one address |
+
+Not returned, among everything else: the message itself, its headers, the
+delivery and rejection details (they quote the recipient servers' answers), the
+account, alias, and domain ids, and the `link` to Forward Email's dashboard.
+
 ### Webhook URLs
 
 A domain's `bounce_webhook` and an alias's recipients can be URLs with a secret
@@ -193,13 +229,14 @@ with no products are each an empty list, never an error.
 | Code | Meaning |
 |---|---|
 | `invalid_domain` | `feAliases` was not given a lowercase hostname; Forward Email was not called |
+| `invalid_page` | `feEmails` was not given a page from 1 to 100; Forward Email was not called |
 | `fe_unreachable` | the request to Forward Email did not complete |
 | `fe_status` | Forward Email answered outside 2xx; the message carries the status |
 | `fe_bad_body` | a 2xx whose body is not a JSON list |
-| `fe_incomplete` | Forward Email holds more rows than the one page (1,000) it returned |
+| `fe_incomplete` | `feDomains` or `feAliases`: Forward Email holds more rows than the one page (1,000) it returned |
 
-No message quotes a response body. A KV failure in `products()` is thrown as
-it came.
+No message quotes a response body. A KV failure in `products()` or `feEmails()`
+is thrown as it came.
 
 ## Deploy
 

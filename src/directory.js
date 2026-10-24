@@ -1,7 +1,8 @@
 // The read-only directory behind the AdminDirectory entrypoint (src/worker.js).
 //
 // admin.tgwab.us mirrors the Forward Email account: its domains, their aliases,
-// and which product sends from which domain. DEV-STANDARDS §6 keeps the
+// which product sends from which domain, and the mail this Worker has sent
+// (its Message log). DEV-STANDARDS §6 keeps the
 // account-wide Forward Email key in this Worker and nowhere else, so the admin
 // Worker (tgwab-admin) does not get the key. It calls the three reads below over
 // a service binding, on a schedule, and stores the answers in its own database.
@@ -15,8 +16,8 @@
 // can carry, a public caller can send. test/directory.test.js fails if any
 // module but src/worker.js imports this one.
 //
-// READ-ONLY: one GET to Forward Email per call, or `list` and `get` on the
-// PRODUCTS KV. Nothing here writes KV, sends mail, retries, caches, or reports
+// READ-ONLY: at most one GET to Forward Email per call, and `list` and `get` on
+// the PRODUCTS KV. Nothing here writes KV, sends mail, retries, caches, or reports
 // to herald. A failure is thrown to the caller, who asked and will ask again.
 //
 // NOTHING SECRET CROSSES, by allow-list and never by deny-list. Each answer is
@@ -35,6 +36,7 @@ const FE_API = 'https://api.forwardemail.net/v1';
 // message as well, so a caller that reads only the message still has it.
 //
 //   invalid_domain   feAliases was not given a hostname; Forward Email was not called
+//   invalid_page     feEmails was not given a page from 1 to 100; Forward Email was not called
 //   fe_unreachable   the request to Forward Email did not complete
 //   fe_status        Forward Email answered outside 2xx; the message has the status
 //   fe_bad_body      a 2xx whose body is not a JSON list
@@ -131,11 +133,8 @@ export function recipientShape(value) {
 // The same key, base URL, and Basic auth as sendEmail in index.js, and none of
 // its retry: this is a read on the caller's schedule, and the caller is told.
 //
-// Forward Email pages both lists at 1,000 rows and ignores `pagination=false`
-// (its routes/api/v1/index.js, read at d706205 on 2026-10-11). It states the
-// full count in X-Item-Count, so a list that was cut short is refused here
-// rather than mirrored as though it were whole.
-async function feList(env, path) {
+// One GET, and its answer as a JSON list with the response's headers.
+async function feGet(env, path) {
   let res;
   try {
     res = await fetch(FE_API + path, {
@@ -149,7 +148,16 @@ async function feList(env, path) {
   if (!Array.isArray(rows)) {
     throw new DirectoryError('fe_bad_body', 'Forward Email answered 2xx without a JSON list');
   }
-  if (Number(res.headers.get('X-Item-Count')) > rows.length) {
+  return { rows, headers: res.headers };
+}
+
+// Forward Email pages both lists at 1,000 rows and ignores `pagination=false`
+// (its routes/api/v1/index.js, read at d706205 on 2026-10-11). It states the
+// full count in X-Item-Count, so a list that was cut short is refused here
+// rather than mirrored as though it were whole.
+async function feList(env, path) {
+  const { rows, headers } = await feGet(env, path);
+  if (Number(headers.get('X-Item-Count')) > rows.length) {
     throw new DirectoryError('fe_incomplete', `Forward Email returned ${rows.length} rows of a longer list`);
   }
   return rows;
@@ -252,4 +260,95 @@ export async function products(env) {
     }
   }
   return out;
+}
+
+// -------------------------------------------------------- sent mail ----
+
+// One page of Forward Email's outbound list holds at most 100 messages
+// (`paginate.middleware(25, 100)` on GET /v1/emails, its routes/api/v1/index.js,
+// read at b786d65 on 2026-10-24), and a caller may ask for at most 100 pages.
+export const EMAIL_PAGE_SIZE = 100;
+const EMAIL_PAGE_MAX = 100;
+
+// Forward Email's `status` values (its app/models/emails.js, same commit).
+const EMAIL_STATUS = new Set(['pending', 'queued', 'sent', 'partially_sent', 'deferred', 'bounced', 'rejected']);
+const EMAIL_STATUSES = (v) => (EMAIL_STATUS.has(v) ? v : null);
+const RECIPIENTS_MAX = 50;
+const SUBJECT_MAX = 300;
+
+// A time, in either of the two shapes a JSON date takes, and handed on as ISO
+// 8601 UTC. The value crosses as Date's own output, never as the text it came in.
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+const HTTP_DATE = /^[A-Z][a-z]{2}, \d{1,2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} (GMT|[+-]\d{4})$/;
+function instant(v) {
+  if (typeof v !== 'string' || !(ISO_INSTANT.test(v) || HTTP_DATE.test(v))) return null;
+  const t = Date.parse(v);
+  return Number.isFinite(t) ? new Date(t).toISOString() : null;
+}
+
+// A subject is one line of text: control characters (a folded header's line
+// breaks among them) become spaces, each run of spaces becomes one, and it is
+// cut to SUBJECT_MAX characters.
+function subjectLine(v) {
+  return typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, SUBJECT_MAX) : null;
+}
+const messageId = matching(/^<[^\s<>]{1,250}>$/);
+
+// The envelope's recipients: Forward Email combines To, Cc, and Bcc into one
+// list, or keeps a single address as a string. Only addresses cross.
+function recipients(v) {
+  const list = Array.isArray(v) ? v : typeof v === 'string' ? [v] : [];
+  return list.filter(isEmail).slice(0, RECIPIENTS_MAX);
+}
+
+// The mail this Worker sends: one page of Forward Email's outbound list,
+// newest first, holding only messages whose envelope sender is the `from_addr`
+// of a product record. The account also holds client domains, whose people send
+// their own mail through Forward Email; that is not this Worker's mail, and none
+// of it crosses: not a subject, not a recipient. It is counted in `others`.
+//
+// `oldest_created_at` is the earliest time on the page, counted before that
+// filter, so a caller that reads back to a date knows when to stop.
+// `has_more` is whether Forward Email holds a further page, by its X-Page-Count
+// header, or, without one, by whether this page was full.
+//
+// The product records are read before Forward Email is asked: a KV failure is
+// thrown as it came, and then nothing has been asked of Forward Email.
+export async function feEmails(env, page) {
+  if (!Number.isInteger(page) || page < 1 || page > EMAIL_PAGE_MAX) {
+    throw new DirectoryError('invalid_page', `feEmails takes a page from 1 to ${EMAIL_PAGE_MAX}`);
+  }
+  // Each sender address, and the products that send as it.
+  const senders = new Map();
+  for (const p of await products(env)) {
+    if (!p.slug || !p.from_addr) continue;
+    const address = p.from_addr.toLowerCase();
+    senders.set(address, [...(senders.get(address) ?? []), p.slug].sort());
+  }
+
+  const { rows, headers } = await feGet(env, `/emails?limit=${EMAIL_PAGE_SIZE}&page=${page}&sort=-created_at`);
+  const pageCount = Number(headers.get('X-Page-Count'));
+  const times = rows.map((e) => instant(e?.created_at)).filter(Boolean).sort();
+  const emails = [];
+  for (const e of rows) {
+    const from = typeof e?.envelope?.from === 'string' ? e.envelope.from.toLowerCase() : null;
+    if (!from || !isEmail(from) || !senders.has(from)) continue;
+    emails.push({
+      id: objectId(e?.id),
+      created_at: instant(e?.created_at),
+      status: EMAIL_STATUSES(e?.status),
+      from,
+      to: recipients(e?.envelope?.to),
+      subject: subjectLine(e?.subject),
+      message_id: messageId(e?.messageId),
+      products: senders.get(from),
+    });
+  }
+  return {
+    emails,
+    page,
+    has_more: Number.isInteger(pageCount) && pageCount > 0 ? page < pageCount : rows.length >= EMAIL_PAGE_SIZE,
+    oldest_created_at: times[0] ?? null,
+    others: rows.length - emails.length,
+  };
 }

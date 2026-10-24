@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import worker from '../src/index.js';
-import { DirectoryError, isHostname, recipientShape, webhookShape } from '../src/directory.js';
+import { DirectoryError, EMAIL_PAGE_SIZE, isHostname, recipientShape, webhookShape } from '../src/directory.js';
 
 // `cloudflare:workers` exists only inside workerd. The stand-in keeps the one
 // thing AdminDirectory uses from its base class: the constructor leaves the
@@ -167,6 +167,24 @@ const SECRETS = {
   product_future: 'product-field-added-later-7e42',
   product_wrong_type: 'secret-where-an-address-belongs-b9c8',
   other_key: 'record-under-another-prefix-d3a1',
+  // Forward Email's outbound list (GET /v1/emails).
+  email_message: 'raw-message-body-sign-in-link-0b4d',
+  email_header: 'header-value-secret-93e1',
+  email_accepted: 'accepted-recipient-c2f7@example.net',
+  email_rejected: 'rejected-response-text-5e08',
+  email_delivery: 'delivery-response-text-a6b2',
+  email_link: 'dashboard-link-token-41cd',
+  email_user: 'account-user-email-8d3f@example.net',
+  email_dsn: 'dsn-envelope-id-27ae',
+  email_future: 'email-field-added-later-f05c',
+  email_wrong_status: 'secret-where-a-status-belongs-6b19',
+  email_wrong_date: 'secret-where-a-time-belongs-d82e',
+  email_wrong_message_id: 'secret-where-a-message-id-belongs-3c4a',
+  email_wrong_recipient: 'secret-where-a-recipient-belongs-e71b',
+  email_wrong_sender: 'secret-in-a-sender-url-90fd',
+  client_subject: 'client-correspondence-subject-58b6',
+  client_recipient: 'client-correspondent-1f9e@example.net',
+  client_message_id: 'client-message-id-ad30',
   // Forward Email's error answers.
   error_body: 'error-body-token-6a5f',
   thrown_message: 'thrown-message-token-e2c4',
@@ -487,6 +505,133 @@ const PRODUCTS_OUT = [
   },
 ];
 
+// Rows as Forward Email's outbound list builds them (its
+// app/controllers/api/v1/emails.js `json(email, true)` over app/models/emails.js,
+// read at b786d65 on 2026-10-24), with a secret planted in every field that
+// could hold one. The list drops `message` and `headers` itself; they are here
+// because the directory must not depend on that.
+const EMAIL_BAGGAGE = {
+  object: 'email',
+  message: `Click https://account.example.invalid/sign-in?token=${SECRETS.email_message}`,
+  headers: { 'X-Secret': SECRETS.email_header, Subject: 'Your receipt' },
+  accepted: [SECRETS.email_accepted],
+  rejectedErrors: [{ recipient: 'x@example.net', response: SECRETS.email_rejected }],
+  deliveries: [{ recipient: 'customer@example.net', response: `250 OK ${SECRETS.email_delivery}`, mx: { host: 'mx.example.net' } }],
+  link: `https://forwardemail.net/my-account/emails/x?t=${SECRETS.email_link}`,
+  user: { id: '64f0c1d2e3a4b5c6d7e8f9aa', email: SECRETS.email_user },
+  alias: '64f0c1d2e3a4b5c6d7e8fa02',
+  domain: '64f0c1d2e3a4b5c6d7e8f901',
+  dsn: { id: SECRETS.email_dsn },
+  rcptTo: [{ address: SECRETS.email_accepted }],
+  hard_bounces: [], soft_bounces: [], is_bounce: false, is_redacted: false, is_locked: false,
+  updated_at: '2026-10-24T12:00:05.000Z',
+  added_later: SECRETS.email_future,
+};
+
+const FE_EMAILS = [
+  // A product's mail, as the send path makes it.
+  {
+    ...EMAIL_BAGGAGE,
+    id: '6718a0c1d2e3a4b5c6d7e801',
+    created_at: '2026-10-24T12:00:00.000Z',
+    status: 'sent',
+    envelope: { from: 'noreply@acme.example.com', to: ['customer@example.net'] },
+    subject: 'Your receipt',
+    messageId: '<6718a0c1@acme.example.com>',
+    date: '2026-10-24T12:00:00.000Z',
+  },
+  // The client's own mail on the same account: none of it crosses.
+  {
+    ...EMAIL_BAGGAGE,
+    id: '6718a0c1d2e3a4b5c6d7e802',
+    created_at: '2026-10-24T11:30:00.000Z',
+    status: 'sent',
+    envelope: { from: 'owner@client.example.net', to: [SECRETS.client_recipient] },
+    subject: `Re: our contract ${SECRETS.client_subject}`,
+    messageId: `<${SECRETS.client_message_id}@client.example.net>`,
+  },
+  // The sender in capitals, one recipient as a string, a folded subject, and
+  // the time in the other shape a JSON date takes.
+  {
+    ...EMAIL_BAGGAGE,
+    id: '6718a0c1d2e3a4b5c6d7e803',
+    created_at: 'Fri, 24 Oct 2026 11:00:00 GMT',
+    status: 'deferred',
+    envelope: { from: 'NoReply@Plain.Example.Org', to: 'ops@plain.example.org' },
+    subject: 'Daily\r\n report\tfor ops',
+    messageId: '<6718a0c3@plain.example.org>',
+  },
+  // A sender that is a URL with an address in it.
+  {
+    ...EMAIL_BAGGAGE,
+    id: '6718a0c1d2e3a4b5c6d7e804',
+    created_at: '2026-10-24T10:30:00.000Z',
+    status: 'sent',
+    envelope: { from: `https://user:${SECRETS.email_wrong_sender}@acme.example.com`, to: [SECRETS.client_recipient] },
+    subject: SECRETS.client_subject,
+  },
+  // A product's sender, and every other allow-listed field of the wrong shape.
+  {
+    id: 7,
+    created_at: `Aug 1 2026 (${SECRETS.email_wrong_date})`,
+    status: SECRETS.email_wrong_status,
+    envelope: {
+      from: 'noreply@acme.example.com',
+      to: [`https://user:${SECRETS.email_wrong_recipient}@h.example.invalid/x`, 'not an address', 42, null, 'Second@Example.NET'],
+    },
+    subject: { text: 'not a string' },
+    messageId: SECRETS.email_wrong_message_id,
+  },
+  // The oldest row, and no envelope at all.
+  { id: '6718a0c1d2e3a4b5c6d7e806', created_at: '2026-10-24T09:00:00.000Z', status: 'queued' },
+];
+
+const EMAILS_OUT = {
+  emails: [
+    {
+      id: '6718a0c1d2e3a4b5c6d7e801',
+      created_at: '2026-10-24T12:00:00.000Z',
+      status: 'sent',
+      from: 'noreply@acme.example.com',
+      to: ['customer@example.net'],
+      subject: 'Your receipt',
+      message_id: '<6718a0c1@acme.example.com>',
+      products: ['acme'],
+    },
+    {
+      id: '6718a0c1d2e3a4b5c6d7e803',
+      created_at: '2026-10-24T11:00:00.000Z',
+      status: 'deferred',
+      from: 'noreply@plain.example.org',
+      to: ['ops@plain.example.org'],
+      subject: 'Daily report for ops',
+      message_id: '<6718a0c3@plain.example.org>',
+      products: ['plain'],
+    },
+    {
+      id: null,
+      created_at: null,
+      status: null,
+      from: 'noreply@acme.example.com',
+      to: ['Second@Example.NET'],
+      subject: null,
+      message_id: null,
+      products: ['acme'],
+    },
+  ],
+  page: 1,
+  has_more: false,
+  oldest_created_at: '2026-10-24T09:00:00.000Z',
+  others: 3,
+};
+
+const emailsUrl = (page) => `${FE}/emails?limit=100&page=${page}&sort=-created_at`;
+// Forward Email's list answer for /v1/emails: the page, and its count of pages.
+const emailPage = (rows, pageCount) => new Response(JSON.stringify(rows), {
+  status: 200,
+  headers: { 'Content-Type': 'application/json', ...(pageCount === undefined ? {} : { 'X-Page-Count': String(pageCount) }) },
+});
+
 // Each failure, with a secret planted wherever Forward Email could repeat one.
 const FAILURES = {
   'a 401': {
@@ -554,7 +699,7 @@ function setup(records = PRODUCT_RECORDS, pageSize) {
     NOTIFY_URL: 'https://notify.example.invalid',
     NOTIFY_TOKEN: SECRETS.notify_token,
   };
-  forwardEmail({ [DOMAINS_URL]: FE_DOMAINS, [ALIASES_URL]: FE_ALIASES });
+  forwardEmail({ [DOMAINS_URL]: FE_DOMAINS, [ALIASES_URL]: FE_ALIASES, [emailsUrl(1)]: () => emailPage(FE_EMAILS, 1) });
   const pending = [];
   const ctx = { waitUntil: (p) => pending.push(p) };
   return { env, ctx, pending, directory: new AdminDirectory(ctx, env) };
@@ -571,11 +716,11 @@ test('the main module is index.js with one export added, and wrangler deploys th
   assert.equal(toml.match(/^main\s*=\s*"([^"]+)"/m)?.[1], 'src/worker.js');
 });
 
-test('AdminDirectory offers a binding caller exactly three methods, and no fetch', () => {
+test('AdminDirectory offers a binding caller exactly four methods, and no fetch', () => {
   // Every public method on a WorkerEntrypoint is callable over the binding.
   assert.deepEqual(
     Object.getOwnPropertyNames(AdminDirectory.prototype).sort(),
-    ['constructor', 'feAliases', 'feDomains', 'products'],
+    ['constructor', 'feAliases', 'feDomains', 'feEmails', 'products'],
   );
   // And only a class that extends WorkerEntrypoint is callable at all: workerd
   // refuses a binding to a plain exported class (measured on 2026-10-11).
@@ -682,6 +827,107 @@ test('products: a KV with no product records is an empty list, and a KV that fai
   await assert.rejects(s.directory.products(), TypeError);
 });
 
+test('feEmails: the product records, then one GET for the page, and exactly the allow-listed fields', async () => {
+  const s = setup();
+  assert.deepEqual(await s.directory.feEmails(1), EMAILS_OUT);
+
+  assert.deepEqual(s.env.PRODUCTS.ops, ['list product:', 'get 3 keys'], 'the senders come from the KV, as products() reads it');
+  assert.equal(calls.length, 1, 'one call to Forward Email');
+  assert.equal(calls[0].url, emailsUrl(1));
+  assert.equal(calls[0].method, 'GET');
+  assert.equal(calls[0].body, null);
+  assert.deepEqual(calls[0].headers, { Authorization: 'Basic ' + btoa(`${SECRETS.fe_api_key}:`) });
+  assert.equal(EMAIL_PAGE_SIZE, 100, "Forward Email's largest page");
+});
+
+test('feEmails: the page goes into the URL, and has_more follows X-Page-Count, or a full page without it', async () => {
+  const s = setup();
+  const full = Array.from({ length: EMAIL_PAGE_SIZE }, (_, i) => ({ ...FE_EMAILS[0], id: `6718a0c1d2e3a4b5c6d7${String(i).padStart(4, '0')}` }));
+  const cases = [
+    [1, () => emailPage(FE_EMAILS, 3), true],
+    [3, () => emailPage(FE_EMAILS, 3), false],
+    [7, () => emailPage([], 3), false],
+    [2, () => emailPage(full), true],
+    [2, () => emailPage(FE_EMAILS), false],
+    [100, () => emailPage(full, 0), true],
+    [100, () => emailPage(FE_EMAILS, 'many'), false],
+  ];
+  for (const [page, answer, more] of cases) {
+    calls = [];
+    forwardEmail({ [emailsUrl(page)]: answer });
+    const got = await s.directory.feEmails(page);
+    assert.deepEqual(calls.map((c) => c.url), [emailsUrl(page)]);
+    assert.equal(got.page, page);
+    assert.equal(got.has_more, more, `page ${page}`);
+  }
+  const empty = await (forwardEmail({ [emailsUrl(1)]: () => emailPage([], 1) }), s.directory.feEmails(1));
+  assert.deepEqual(empty, { emails: [], page: 1, has_more: false, oldest_created_at: null, others: 0 });
+});
+
+test('feEmails: only mail sent as a product\'s from_addr crosses, and every product that shares the address is named', async () => {
+  const records = {
+    'product:ops': { name: 'Ops', from_addr: 'noreply@tb.example.us' },
+    'product:muster': { name: 'Muster', from_addr: 'NOREPLY@tb.example.us' },
+    'product:weather': { name: 'Weather', from_addr: 'noreply@tb.example.us' },
+    'product:acme': PRODUCT_RECORDS['product:acme'],
+    'product:nofrom': { name: 'No sender' },
+  };
+  const s = setup(records);
+  const shared = { ...FE_EMAILS[0], envelope: { from: 'noreply@tb.example.us', to: ['michal@example.net'] } };
+  forwardEmail({ [emailsUrl(1)]: () => emailPage([shared, FE_EMAILS[0], FE_EMAILS[1], FE_EMAILS[2]], 1) });
+  const got = await s.directory.feEmails(1);
+  assert.deepEqual(got.emails.map((e) => [e.from, e.products]), [
+    ['noreply@tb.example.us', ['muster', 'ops', 'weather']],
+    ['noreply@acme.example.com', ['acme']],
+  ]);
+  // The client's mail and plain.example.org's, whose product is not in this KV.
+  assert.equal(got.others, 2);
+  // CONTROL: with no product records nothing crosses at all, and everything is counted.
+  const none = setup({ 'other:config': {} });
+  assert.deepEqual(await none.directory.feEmails(1), { ...EMAILS_OUT, emails: [], others: FE_EMAILS.length });
+});
+
+test('feEmails: anything that is not a page from 1 to 100 is refused before the KV or Forward Email is asked', async () => {
+  const s = setup();
+  for (const page of [0, -1, 101, 1.5, Number.NaN, Infinity, '1', '1 ', '1&limit=1000', null, undefined, true, {}, [1], { valueOf: () => 1 }]) {
+    await assert.rejects(
+      s.directory.feEmails(page),
+      (e) => e instanceof DirectoryError && e.code === 'invalid_page' && e.message.startsWith('invalid_page: '),
+      `feEmails accepted ${String(page)}`,
+    );
+  }
+  assert.deepEqual(calls, [], 'no request left for any of them');
+  assert.deepEqual(s.env.PRODUCTS.ops, [], 'nor was the KV read');
+});
+
+test('feEmails: a KV failure is thrown as it came, and Forward Email is not asked', async () => {
+  const s = setup();
+  s.env.PRODUCTS.list = async () => {
+    throw new Error('KV LIST failed: 500');
+  };
+  await assert.rejects(s.directory.feEmails(1), /KV LIST failed/);
+  assert.deepEqual(calls, []);
+});
+
+test('feEmails: a Forward Email failure is a thrown error with a code, never an empty page; a partial page is the answer', async () => {
+  for (const [name, failure] of Object.entries(FAILURES)) {
+    const s = setup();
+    calls = [];
+    forwardEmail({ [emailsUrl(1)]: failure.answer });
+    const result = await s.directory.feEmails(1).then((v) => ({ v }), (e) => ({ e }));
+    assert.equal(calls.length, 1, `retried on ${name}`);
+    if (failure.code === 'fe_incomplete') {
+      // A page of a longer list is what feEmails asks for: has_more says there is more.
+      assert.equal(result.e, undefined, name);
+      continue;
+    }
+    assert.ok(result.e instanceof DirectoryError, `no throw on ${name}`);
+    assert.equal(result.e.code, failure.code, name);
+    assert.equal(result.e.message, failure.message, name);
+    assert.ok(!JSON.stringify([result.e.message, result.e.code]).includes(failure.planted), name);
+  }
+});
+
 // ---- nothing secret crosses ---------------------------------------------------
 
 test('no method returns a planted secret, and every secret was planted', async () => {
@@ -690,6 +936,7 @@ test('no method returns a planted secret, and every secret was planted', async (
     feDomains: await s.directory.feDomains(),
     feAliases: await s.directory.feAliases('example.com'),
     products: await s.directory.products(),
+    feEmails: await s.directory.feEmails(1),
   };
   for (const [method, answer] of Object.entries(answers)) {
     const body = JSON.stringify(answer);
@@ -704,11 +951,11 @@ test('no method returns a planted secret, and every secret was planted', async (
   assert.deepEqual(origins, ['https://acme.example.com', 'https://www.acme.example.com']);
   for (const o of origins) assert.equal(new URL(o).origin, o);
   const withoutOrigins = answers.products.map((p) => ({ ...p, allowed_origins: null }));
-  assert.ok(!JSON.stringify([answers.feDomains, answers.feAliases, withoutOrigins]).includes('://'), 'a URL crossed');
+  assert.ok(!JSON.stringify([answers.feDomains, answers.feAliases, withoutOrigins, answers.feEmails]).includes('://'), 'a URL crossed');
 
   // The needles are real. Each one is in what the stubs handed the Worker, so a
   // clean answer above means it was withheld and not that it was never there.
-  const handed = JSON.stringify([FE_DOMAINS, FE_ALIASES, PRODUCT_RECORDS, s.env])
+  const handed = JSON.stringify([FE_DOMAINS, FE_ALIASES, FE_EMAILS, PRODUCT_RECORDS, s.env])
     + JSON.stringify(Object.values(FAILURES).map((f) => f.planted));
   for (const [name, secret] of Object.entries(SECRETS)) {
     assert.ok(handed.includes(secret), `${name} is in no fixture, so nothing was proved about it`);
@@ -797,11 +1044,12 @@ test('no method writes KV, sends mail, or calls Forward Email with anything but 
   await s.directory.feDomains();
   await s.directory.feAliases('example.com');
   await s.directory.products();
+  await s.directory.feEmails(1);
   await Promise.all(s.pending);
 
-  assert.deepEqual(calls.map((c) => `${c.method} ${c.url}`), [`GET ${DOMAINS_URL}`, `GET ${ALIASES_URL}`]);
+  assert.deepEqual(calls.map((c) => `${c.method} ${c.url}`), [`GET ${DOMAINS_URL}`, `GET ${ALIASES_URL}`, `GET ${emailsUrl(1)}`]);
   assert.ok(calls.every((c) => c.body === null), 'no request carried a body');
-  assert.deepEqual(s.env.PRODUCTS.ops, ['list product:', 'get 3 keys']);
+  assert.deepEqual(s.env.PRODUCTS.ops, ['list product:', 'get 3 keys', 'list product:', 'get 3 keys']);
   assert.deepEqual(s.pending, [], 'nothing is deferred past the answer');
 });
 
@@ -985,6 +1233,7 @@ test('README lists every field each method returns, and the binding that reaches
     feAliases: await s.directory.feAliases('example.com'),
     products: await s.directory.products(),
   };
+  const sent = await s.directory.feEmails(1);
   // Each method has a heading and a table; the first cell of a row names fields.
   const documented = (method) => {
     const start = section.indexOf(`### \`${method}`);
@@ -997,7 +1246,9 @@ test('README lists every field each method returns, and the binding that reaches
   for (const [method, rows] of Object.entries(answers)) {
     assert.deepEqual(documented(method), Object.keys(rows[0]), `${method}: the README table and the answer disagree`);
   }
-  for (const code of new Set(Object.values(FAILURES).map((f) => f.code)).add('invalid_domain')) {
+  // feEmails answers one object: its table, then the table of one message.
+  assert.deepEqual(documented('feEmails'), [...Object.keys(sent), ...Object.keys(sent.emails[0])], 'feEmails: the README tables and the answer disagree');
+  for (const code of new Set(Object.values(FAILURES).map((f) => f.code)).add('invalid_domain').add('invalid_page')) {
     assert.ok(section.includes(`\`${code}\``), `the README does not name ${code}`);
   }
   assert.match(section, /\[\[services\]\]\nbinding = "MAILER_DIRECTORY"\nservice = "mailer"\nentrypoint = "AdminDirectory"\n/);
