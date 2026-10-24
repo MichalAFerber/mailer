@@ -52,6 +52,12 @@ jobs:
       - name: Install
         run: npm ci
 
+      # §15 audit: FULL tree, deliberately not --omit=dev; the dev half builds what ships.
+      # Skipped on push: the PR already passed it, and a later advisory must not hold a reviewed deploy.
+      - name: Audit dependencies (full tree)
+        if: github.event_name != 'push'
+        run: npm audit --audit-level=high
+
       - name: Test
         run: node --test
 
