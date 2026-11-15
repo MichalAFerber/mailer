@@ -601,7 +601,13 @@ async function sendEmail(env, { from, to, replyTo, subject, html, text, slug, la
       form.set('from', from);
       form.set('to', to);
       if (replyTo) form.set('replyTo', replyTo);
-      form.set('subject', subject);
+      // Forward Email's API double-encodes a subject that holds U+FE0F, the emoji
+      // variation selector: it encodes each non-ASCII character as an RFC 2047
+      // word, then encodes that result again, so clients show the raw
+      // =?UTF-8?Q?=E2=9A=A0?= text. The same subject without U+FE0F arrives
+      // intact (two direct API sends, 2026-11-14). Dropping the selector only
+      // loses the hint to draw the emoji in color; "⚠️" still shows as "⚠".
+      form.set('subject', subject.replace(/\uFE0F/g, ''));
       form.set('html', html);
       // The text/plain alternative. This was accepted as a parameter and then
       // dropped on the floor: every renderer built one, nothing ever sent it, and
