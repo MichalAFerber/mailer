@@ -329,6 +329,15 @@ test('send: happy path delivers with defaults (to=contact_to, from=product)', as
   assert.equal(mail.replyTo, undefined);
 });
 
+test('send: U+FE0F is stripped from the subject, which Forward Email double-encodes', async () => {
+  // ipcow.com's certificate alerts start with "⚠️" (U+26A0 U+FE0F). With the
+  // selector, Forward Email sent the subject double-encoded; without it, intact.
+  const res = await send({ subject: '\u26A0\uFE0F SSL certificate for mykk.us expires in 30 days \u2014 \u2705', message: 'm' });
+  assert.equal(res.status, 200);
+  assert.equal(emailCalls[0].subject, '\u26A0 SSL certificate for mykk.us expires in 30 days \u2014 \u2705');
+  assert.ok(!emailCalls[0].subject.includes('\uFE0F'));
+});
+
 test('send: reply_to and name are honored', async () => {
   await send({ subject: 's', message: 'm', reply_to: 'me@example.com', name: 'Herald' });
   assert.equal(emailCalls[0].replyTo, 'me@example.com');
